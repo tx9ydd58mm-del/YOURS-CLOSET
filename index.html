@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
- <title>YOUR'S CLOSET System v1.0</title>
+ <title>YOUR'S CLOSET  </title>
     
     <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
@@ -62,7 +62,7 @@
         margin: 0; padding: 0;
     }
     
-    .adelita-bg { background: linear-gradient(135deg, #fce7f3 0%, #e0e7ff 100%); }
+    .YOURS CLOSET-bg { background: linear-gradient(135deg, #fce7f3 0%, #e0e7ff 100%); }
 
     /* --- UTILIDADES --- */
     .date-icon-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 0; font-size: 1.25rem; }
@@ -207,7 +207,7 @@
 
 
 </head>
-<body class="adelita-bg">
+<body class="YOUR'S CLOSET-bg">
 
 <div id="root">
     <div style="height: 100vh; display: flex; justify-content: center; align-items: center; color: #64748b; font-weight: bold;">
@@ -305,7 +305,7 @@
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
         
-        doc.setFontSize(20); doc.text("Reporte Adelita Store", 14, 20);
+        doc.setFontSize(20); doc.text("Reporte YOUR'S CLOSET", 14, 20);
         doc.setFontSize(10); doc.text(`Generado: ${new Date().toLocaleDateString()}`, 14, 26);
         doc.text(`Filtro: ${groupBy.toUpperCase()}`, 14, 31);
 
@@ -319,7 +319,7 @@
             rows.push(['TOTAL ' + key, '', '', formatMoney(data.total)]);
         });
         doc.autoTable({ startY: doc.lastAutoTable.finalY + 12, head: [['Fecha', 'Cliente', 'Prenda', 'Valor']], body: rows });
-        doc.save(`Adelita_Reporte_${getToday()}.pdf`);
+        doc.save(`YOURS CLOSET _${getToday()}.pdf`);
     };
 
     // --- NUEVO COMPONENTE DE FACTURA 3D ULTIMATE ---
@@ -1713,7 +1713,7 @@
 
                 <div className="p-4 md:p-8 max-w-5xl mx-auto w-full text-slate-800">
                     <div className="text-center border-b-2 border-slate-900 pb-6 mb-8">
-                        <h1 className="text-2xl md:text-4xl font-extrabold text-slate-900 tracking-tight">Reporte ADELITA STORE</h1>
+                        <h1 className="text-2xl md:text-4xl font-extrabold text-slate-900 tracking-tight">Reporte YOURS CLOSET  </h1>
                         <p className="text-slate-500 mt-2 font-medium text-xs md:text-sm">Agrupado por: {groupBy === 'client' ? 'CLIENTES' : 'FECHAS'} | Fecha: {new Date().toLocaleDateString()}</p>
                     </div>
 
@@ -1789,7 +1789,6 @@
         // --- VISTA ADMINISTRADOR 8.0 (FINAL: CON REPORTE DE SOCIAS) ---
     // --- VISTA ADMINISTRADOR 8.0 (FINAL: CON REPORTE DE SOCIAS) ---
     const AdminView = ({ logic, onClose, onJumpToClient }) => {
-        // ESTADOS
         const [showReport, setShowReport] = useState(false); 
         
         // ESTADOS NUEVO GASTO
@@ -1806,60 +1805,51 @@
         const [transfTo, setTransfTo] = useState('guayaquil');
         const [transfAmount, setTransfAmount] = useState("");
 
-        // ESTADOS AUDITORÍA E IGUALAR CAJA
+        // ESTADOS IGUALAR CAJA Y AUDITORÍA
         const [auditBank, setAuditBank] = useState(null);
         const [showEqualize, setShowEqualize] = useState(false);
+        const [showAdjustments, setShowAdjustments] = useState(false); 
         const [eqAmount, setEqAmount] = useState("");
         const [eqBank, setEqBank] = useState('pichincha');
 
-        // --- CÁLCULOS BLINDADOS ---
+        // ESTADO DE REINICIO CONTABLE (MÁQUINA DEL TIEMPO)
+        const [accountingFrom, setAccountingFrom] = useState("");
+
+        // 1. CÁLCULOS DE CAJA REAL (ESTOS NUNCA SE REINICIAN A 0)
         const balances = { pichincha: 0, guayaquil: 0, pacifico: 0, efectivo: 0 };
+        logic.payments.forEach(p => { const acc = (p.account || 'pichincha').toLowerCase().trim(); const val = parseFloat(p.amount) || 0; if(balances[acc] !== undefined) balances[acc] += val; });
+        logic.expenses.forEach(e => { const acc = (e.account || 'pichincha').toLowerCase().trim(); const val = parseFloat(e.amount) || 0; if(balances[acc] !== undefined) balances[acc] -= val; });
+        const currentBalanceGlobal = balances.pichincha + balances.guayaquil + balances.pacifico + balances.efectivo;
         
-        // 1. Sumar Ingresos
-        logic.payments.forEach(p => { 
-            const acc = (p.account || 'pichincha').toLowerCase().trim(); 
-            const val = parseFloat(p.amount) || 0;
-            if(balances[acc] !== undefined) balances[acc] += val; 
-        });
+        // 2. FILTRAR DATOS PARA ESTADÍSTICAS (EL REINICIO VISUAL)
+        const filteredPayments = logic.payments.filter(p => !accountingFrom || p.date >= accountingFrom);
+        const filteredExpenses = logic.expenses.filter(e => !accountingFrom || e.date >= accountingFrom);
+        const filteredSales = logic.sales.filter(s => !accountingFrom || s.date >= accountingFrom);
 
-        // 2. Restar Gastos
-        logic.expenses.forEach(e => { 
-            const acc = (e.account || 'pichincha').toLowerCase().trim();
-            const val = parseFloat(e.amount) || 0;
-            if(balances[acc] !== undefined) balances[acc] -= val; 
-        });
-
-        // --- CÁLCULO GLOBAL DE SOCIAS ---
+        // 3. ESTADÍSTICAS (USAN LOS DATOS FILTRADOS)
         const partnerStats = useMemo(() => {
             const stats = {};
-            logic.sales.forEach(s => {
+            filteredSales.forEach(s => {
                 if (s.owner && s.owner !== 'me') {
                     if (!stats[s.owner]) stats[s.owner] = { sold: 0, paid: 0 };
                     stats[s.owner].sold += s.value;
-                    if (s.partnerSettled) {
-                        stats[s.owner].paid += s.value;
-                    }
+                    if (s.partnerSettled) stats[s.owner].paid += s.value;
                 }
             });
             return stats;
-        }, [logic.sales]);
+        }, [filteredSales]);
 
-        const currentBalanceGlobal = balances.pichincha + balances.guayaquil + balances.pacifico + balances.efectivo;
+        const expensesBusiness = filteredExpenses.filter(e => e.category === 'business').reduce((acc, e) => acc + (parseFloat(e.amount)||0), 0);
+        const expensesPersonal = filteredExpenses.filter(e => e.category === 'personal').reduce((acc, e) => acc + (parseFloat(e.amount)||0), 0);
+        const expensesShipping = filteredExpenses.filter(e => e.category === 'shipping').reduce((acc, e) => acc + (parseFloat(e.amount)||0), 0);
         
-        // --- UTILIDAD PURA Y SEPARACIÓN VISUAL ---
-        const expensesBusiness = logic.expenses.filter(e => e.category === 'business').reduce((acc, e) => acc + (parseFloat(e.amount)||0), 0);
-        const expensesPersonal = logic.expenses.filter(e => e.category === 'personal').reduce((acc, e) => acc + (parseFloat(e.amount)||0), 0);
-        const expensesShipping = logic.expenses.filter(e => e.category === 'shipping').reduce((acc, e) => acc + (parseFloat(e.amount)||0), 0);
-        
-        const ingresosRopa = logic.payments.filter(p => !p.detail?.toLowerCase().includes("envío") && !p.detail?.toLowerCase().includes("transf") && !p.detail?.toLowerCase().includes("ajuste")).reduce((acc, p) => acc + (parseFloat(p.amount)||0), 0);
+        const ingresosRopa = filteredPayments.filter(p => !p.detail?.toLowerCase().includes("envío") && !p.detail?.toLowerCase().includes("transf") && !p.detail?.toLowerCase().includes("ajuste")).reduce((acc, p) => acc + (parseFloat(p.amount)||0), 0);
         const utilidadPura = ingresosRopa - expensesBusiness;
 
-        // INDICADORES
-        const totalSalesGlobal = logic.sales.reduce((acc, s) => acc + (parseFloat(s.value)||0), 0);
-        const totalReceivable = logic.clients.reduce((acc, c) => { const cy = logic.getClientCycle(c.id); return acc + (cy.clothingBalance < -0.01 ? Math.abs(cy.clothingBalance) : 0); }, 0);
+        const totalSalesGlobal = filteredSales.reduce((acc, s) => acc + (parseFloat(s.value)||0), 0);
+        const totalReceivable = logic.clients.reduce((acc, c) => { const cy = logic.getClientCycle(c.id); return acc + (cy.clothingBalance < -0.01 ? Math.abs(cy.clothingBalance) : 0); }, 0); 
 
-        // METRICAS PARA REPORTE
-        const metrics = { totalCollected: logic.payments.reduce((a,b)=>a+(parseFloat(b.amount)||0),0), totalExpenses: logic.expenses.reduce((a,b)=>a+(parseFloat(b.amount)||0),0), profit: utilidadPura };
+        const metrics = { totalCollected: filteredPayments.reduce((a,b)=>a+(parseFloat(b.amount)||0),0), totalExpenses: filteredExpenses.reduce((a,b)=>a+(parseFloat(b.amount)||0),0), profit: utilidadPura };
 
         // FUNCIONES
         const handleAddExpense = () => { if(!expDetail || !expAmount) return; logic.addExpense(expDetail, expAmount, expDate, expType, expAccount); setExpDetail(""); setExpAmount(""); };
@@ -1874,24 +1864,40 @@
 
         const handleEqualize = () => {
             if (!eqAmount) return;
-            const amt = parseFloat(eqAmount);
+            const realBalance = parseFloat(eqAmount);
+            const currentSystemBalance = balances[eqBank] || 0;
+            const difference = realBalance - currentSystemBalance;
+
+            if (Math.abs(difference) < 0.01) return alert("La caja ya tiene ese valor. No hay nada que ajustar.");
+
             const dateISO = new Date().toISOString();
-            if (amt > 0) {
-                window.fs.addDoc(window.fs.collection(window.db, 'payments'), { id: Date.now(), clientId: 'SISTEMA', amount: amt, date: dateISO, detail: `Ajuste Ingreso Fantasma`, account: eqBank });
+            if (difference > 0) {
+                window.fs.addDoc(window.fs.collection(window.db, 'payments'), { id: Date.now(), clientId: 'SISTEMA', amount: difference, date: dateISO, detail: `Ajuste Ingreso Fantasma`, account: eqBank });
             } else {
-                logic.addExpense(`Ajuste Egreso Fantasma`, Math.abs(amt), dateISO, 'business', eqBank);
+                logic.addExpense(`Ajuste Egreso Fantasma`, Math.abs(difference), dateISO, 'business', eqBank);
             }
-            setEqAmount(""); setShowEqualize(false); alert("✅ Caja igualada.");
+            setEqAmount(""); setShowEqualize(false); 
+            alert(`✅ Caja igualada con éxito.\nEl sistema generó un ajuste automático de $${difference.toFixed(2)} para cuadrar cuentas.`);
         };
 
-        const handleDownloadCSV = () => {
-            const data = logic.sales.map(s => [s.date.split('T')[0], s.clientId, s.item, s.value, s.owner || 'me']);
-            exportToCSV([['Fecha', 'Cliente', 'Item', 'Valor', 'Dueño'], ...data], `Ventas_Adelita_${getToday()}.csv`);
+        const adjustmentsList = useMemo(() => {
+            const inAdj = logic.payments.filter(p => p.clientId === 'SISTEMA');
+            const outAdj = logic.expenses.filter(e => e.detail.includes('Ajuste') && e.detail.includes('Fantasma'));
+            return [...inAdj, ...outAdj].sort((a,b) => new Date(safeISO(b.date)) - new Date(safeISO(a.date)));
+        }, [logic.payments, logic.expenses]);
+
+        const handleDeleteAdjustment = async (item) => {
+            if (!window.confirm("¿Borrar este ajuste fantasma?")) return;
+            const col = item.clientId ? 'payments' : 'expenses';
+            await window.fs.deleteDoc(window.fs.doc(window.db, col, item.fireId));
         };
 
+        // ADAPTADO PARA YOURS CLOSET
+        const handleDownloadCSV = () => { exportToCSV([['Fecha', 'Cliente', 'Item', 'Valor', 'Dueño'], ...filteredSales.map(s => [s.date.split('T')[0], s.clientId, s.item, s.value, s.owner || 'me'])], `Ventas_YoursCloset_${getToday()}.csv`); };
+        
         const handleSaveEdit = async () => { if(!editingExp || !editingExp.fireId) return; await window.fs.updateDoc(window.fs.doc(window.db, "expenses", editingExp.fireId), { detail: editingExp.detail, amount: parseFloat(editingExp.amount), date: safeISO(editingExp.date), category: editingExp.category, account: editingExp.account }); setEditingExp(null); };
         const deleteExpense = async () => { if(editingExp && confirm("¿Borrar?")) { await window.fs.deleteDoc(window.fs.doc(window.db, "expenses", editingExp.fireId)); setEditingExp(null); } };
-        const sortedExpenses = [...logic.expenses].sort((a,b) => new Date(safeISO(b.date)) - new Date(safeISO(a.date)));
+        const sortedExpenses = [...filteredExpenses].sort((a,b) => new Date(safeISO(b.date)) - new Date(safeISO(a.date)));
 
         const auditData = useMemo(() => {
             if(!auditBank) return [];
@@ -1901,36 +1907,65 @@
         }, [auditBank, logic.payments, logic.expenses]);
 
         const changeTransactionBank = async (item, newBank) => {
-            try {
-                const col = item.type === 'in' ? 'payments' : 'expenses';
-                await window.fs.updateDoc(window.fs.doc(window.db, col, item.fireId), { account: newBank });
-            } catch(e) { alert("Error cambiando banco."); }
+            try { const col = item.type === 'in' ? 'payments' : 'expenses'; await window.fs.updateDoc(window.fs.doc(window.db, col, item.fireId), { account: newBank }); } catch(e) { alert("Error cambiando banco."); }
         };
 
         return (
             <div className="flex flex-col h-full bg-slate-50 relative overflow-hidden">
-                {showReport && <ReportViewer logic={logic} metrics={metrics} onClose={() => setShowReport(false)} />}
+                {showReport && <ReportViewer logic={{...logic, sales: filteredSales, payments: filteredPayments, expenses: filteredExpenses}} metrics={metrics} onClose={() => setShowReport(false)} />}
                 
-                {/* MODALES */}
+                {/* MODALES BÁSICOS */}
                 {showTransfer && (<div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6" onClick={()=>setShowTransfer(false)}><div className="bg-white p-6 rounded-3xl w-full max-w-sm" onClick={e=>e.stopPropagation()}><h3 className="font-bold text-xl mb-4">Transferir Dinero</h3><div className="flex gap-2 mb-4"><select value={transfFrom} onChange={e=>setTransfFrom(e.target.value)} className="w-full p-2 border rounded font-bold"><option value="pichincha">Pichincha</option><option value="guayaquil">Guayaquil</option><option value="pacifico">Pacífico</option><option value="efectivo">Efectivo</option></select><span>➔</span><select value={transfTo} onChange={e=>setTransfTo(e.target.value)} className="w-full p-2 border rounded font-bold"><option value="pichincha">Pichincha</option><option value="guayaquil">Guayaquil</option><option value="pacifico">Pacífico</option><option value="efectivo">Efectivo</option></select></div><input type="number" value={transfAmount} onChange={e=>setTransfAmount(e.target.value)} className="w-full p-3 border rounded-xl font-bold text-xl mb-4" placeholder="$0.00" /><button onClick={handleTransfer} className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl">CONFIRMAR</button></div></div>)}
                 {editingExp && (<div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-6" onClick={()=>setEditingExp(null)}><div className="bg-white p-6 rounded-3xl w-full max-w-sm space-y-3" onClick={e=>e.stopPropagation()}><div className="flex justify-between border-b pb-2"><h3 className="font-bold">Editar Gasto</h3><button onClick={deleteExpense} className="text-red-500 text-xs font-bold">Borrar</button></div><input value={editingExp.detail} onChange={e=>setEditingExp({...editingExp, detail: e.target.value})} className="w-full p-2 border rounded" /><div className="flex gap-2"><input type="number" value={editingExp.amount} onChange={e=>setEditingExp({...editingExp, amount: e.target.value})} className="w-full p-2 border rounded" /><input type="date" value={editingExp.date.split('T')[0]} onChange={e=>setEditingExp({...editingExp, date: e.target.value})} className="w-full p-2 border rounded" /></div><button onClick={handleSaveEdit} className="w-full py-3 bg-emerald-600 text-white font-bold rounded-xl">GUARDAR</button></div></div>)}
                 
-                {/* MODAL IGUALAR CAJA */}
                 {showEqualize && (
-                    <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-6" onClick={()=>setShowEqualize(false)}>
-                        <div className="bg-white p-6 rounded-3xl w-full max-w-sm" onClick={e=>e.stopPropagation()}>
-                            <h3 className="font-bold text-xl mb-2">⚖️ Igualar Caja (Fantasma)</h3>
-                            <p className="text-xs text-slate-500 mb-4">Usa números negativos (-) para quitar, o positivos (+) para inyectar.</p>
-                            <select value={eqBank} onChange={e=>setEqBank(e.target.value)} className="w-full p-3 border rounded-xl font-bold mb-3">
-                                <option value="pichincha">Pichincha</option><option value="guayaquil">Guayaquil</option><option value="pacifico">Pacífico</option><option value="efectivo">Efectivo</option>
+                    <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4 md:p-6" onClick={()=>setShowEqualize(false)}>
+                        <div className="bg-white p-6 rounded-3xl w-full max-w-sm shadow-2xl" onClick={e=>e.stopPropagation()}>
+                            <h3 className="font-black text-xl mb-1 flex items-center gap-2">⚖️ Igualar Caja</h3>
+                            <p className="text-xs text-slate-500 mb-4 leading-tight">Dile al sistema <b>cuánto dinero REAL tienes</b> en este momento. El sistema calculará la diferencia y lo ajustará solito.</p>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">1. Selecciona el Banco</label>
+                            <select value={eqBank} onChange={e=>setEqBank(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold mb-3 mt-1 outline-none text-indigo-700">
+                                {['pichincha', 'guayaquil', 'pacifico', 'efectivo'].map(b => <option key={b} value={b}>{capitalizeFirst(b)} (Actual: ${balances[b].toFixed(2)})</option>)}
                             </select>
-                            <input type="number" value={eqAmount} onChange={e=>setEqAmount(e.target.value)} className="w-full p-3 border rounded-xl font-bold text-xl mb-4" placeholder="+10 o -10" />
-                            <button onClick={handleEqualize} className="w-full py-3 bg-slate-800 text-white font-bold rounded-xl">APLICAR AJUSTE</button>
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">2. Escribe el saldo REAL (App de tu banco)</label>
+                            <input type="number" value={eqAmount} onChange={e=>setEqAmount(e.target.value)} className="w-full p-4 bg-white border-2 border-indigo-100 focus:border-indigo-400 outline-none rounded-xl font-black text-2xl text-slate-700 mb-4 mt-1 text-center" placeholder="$ 0.00" />
+                            <button onClick={handleEqualize} className="w-full py-4 bg-slate-900 text-white font-black text-lg rounded-xl mb-3 shadow-lg active:scale-95 transition-all">APLICAR AJUSTE</button>
+                            <div className="border-t border-slate-100 pt-3">
+                                <button onClick={()=>{setShowEqualize(false); setShowAdjustments(true);}} className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-lg text-xs transition-colors">¿Te equivocaste? Ver Historial de Ajustes</button>
+                            </div>
                         </div>
                     </div>
                 )}
 
-                {/* MODAL AUDITORÍA DE BANCO */}
+                {showAdjustments && (
+                    <div className="fixed inset-0 bg-black/80 z-[70] flex flex-col justify-end md:justify-center p-0 md:p-6 animate-in slide-in-from-bottom" onClick={()=>setShowAdjustments(false)}>
+                        <div className="bg-white rounded-t-3xl md:rounded-3xl w-full max-w-md max-h-[85vh] flex flex-col shadow-2xl" onClick={e=>e.stopPropagation()}>
+                            <div className="p-5 border-b flex justify-between items-center bg-red-50 rounded-t-3xl">
+                                <div>
+                                    <h3 className="font-black text-red-700 text-lg uppercase flex items-center gap-2"><Icon.Alert /> Historial de Ajustes</h3>
+                                    <p className="text-[10px] text-red-500 font-bold">Borra aquí los ajustes que hiciste por error.</p>
+                                </div>
+                                <button onClick={()=>setShowAdjustments(false)} className="font-bold text-red-400 text-xl bg-white w-8 h-8 rounded-full shadow-sm">✕</button>
+                            </div>
+                            <div className="overflow-y-auto p-4 flex-1 space-y-2">
+                                {adjustmentsList.length === 0 && <div className="text-center text-slate-400 py-10 font-bold">No hay ajustes fantasmas registrados.</div>}
+                                {adjustmentsList.map(adj => (
+                                    <div key={adj.fireId} className="p-3 border border-slate-200 rounded-xl flex justify-between items-center shadow-sm">
+                                        <div>
+                                            <p className="font-bold text-sm text-slate-700">{adj.detail}</p>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mt-0.5">{new Date(safeISO(adj.date)).toLocaleDateString()} • {adj.account}</p>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className={`font-black text-lg ${adj.clientId ? 'text-emerald-600' : 'text-red-600'}`}>{adj.clientId ? '+' : '-'}${adj.amount.toFixed(2)}</span>
+                                            <button onClick={()=>handleDeleteAdjustment(adj)} className="bg-red-50 hover:bg-red-100 text-red-600 p-2.5 rounded-lg active:scale-95 transition-all"><Icon.Trash/></button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {auditBank && (
                     <div className="fixed inset-0 bg-black/80 z-[60] flex flex-col justify-end md:justify-center p-0 md:p-6" onClick={()=>setAuditBank(null)}>
                         <div className="bg-white rounded-t-3xl md:rounded-3xl w-full max-w-lg max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
@@ -1940,18 +1975,13 @@
                             </div>
                             <div className="overflow-y-auto p-4 flex-1 space-y-2">
                                 {auditData.map(item => {
-                                    // AQUÍ BUSCAMOS EL NOMBRE DEL CLIENTE
                                     const clientObj = item.clientId && item.clientId !== 'SISTEMA' && item.clientId !== 'ADMIN_TRANSF' ? logic.clients.find(c => c.id === item.clientId) : null;
-                                    
                                     return (
                                         <div key={item.fireId} className={`p-3 border rounded-xl shadow-sm text-sm flex justify-between items-center ${item.type==='in' ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
                                             <div className="flex-1">
                                                 <div className="font-bold">{item.detail}</div>
-                                                
-                                                {/* MOSTRAMOS EL NOMBRE DEL CLIENTE SI EXISTE */}
                                                 {clientObj && <div className="text-[10px] font-black text-indigo-600 uppercase mt-0.5">👤 {clientObj.name} ({item.clientId})</div>}
                                                 {!clientObj && item.clientId && item.clientId !== 'SISTEMA' && item.clientId !== 'ADMIN_TRANSF' && <div className="text-[10px] font-black text-indigo-600 uppercase mt-0.5">👤 {item.clientId}</div>}
-                                                
                                                 <div className="text-[10px] text-slate-500 mt-0.5">{new Date(safeISO(item.date)).toLocaleString()}</div>
                                                 <select value={item.account} onChange={(e)=>changeTransactionBank(item, e.target.value)} className="text-[10px] p-1 mt-1 rounded border bg-white outline-none">
                                                     <option value="pichincha">Pichincha</option><option value="guayaquil">Guayaquil</option><option value="pacifico">Pacífico</option><option value="efectivo">Efectivo</option>
@@ -1971,13 +2001,19 @@
                     </div>
                 )}
 
-                {/* CABECERA FINANCIERA */}
-                <div className="bg-slate-900 p-4 pb-6 rounded-b-[2rem] shadow-xl text-white z-10 shrink-0">
-                    <div className="flex justify-between items-end mb-4">
+                <div className="bg-slate-900 p-4 pb-6 rounded-b-[2rem] shadow-xl text-white z-10 shrink-0 relative">
+                    
+                    <div className="absolute top-2 right-4 flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-full border border-white/20">
+                        <label className="text-[8px] font-bold text-slate-300 uppercase tracking-widest">Estadísticas Desde:</label>
+                        <input type="date" value={accountingFrom} onChange={e=>setAccountingFrom(e.target.value)} className="bg-transparent text-[10px] font-bold text-white outline-none appearance-none cursor-pointer" />
+                        {accountingFrom && <button onClick={()=>setAccountingFrom("")} className="text-red-400 font-bold text-xs hover:text-red-300">✕</button>}
+                    </div>
+
+                    <div className="flex justify-between items-end mb-4 mt-6">
                         <div className="flex-1">
-                            <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1"><Icon.Chart/> Utilidad Pura</div>
+                            <div className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1"><Icon.Chart/> Utilidad Pura {accountingFrom && '(Filtro)'}</div>
                             <div className="text-4xl font-black text-emerald-300">${utilidadPura.toFixed(2)}</div>
-                            <div className="text-[10px] text-slate-400 mt-1">Ingresos Reales (${ingresosRopa.toFixed(2)})<br/>- Gastos (${expensesBusiness.toFixed(2)})</div>
+                            <div className="text-[10px] text-slate-400 mt-1">Ingresos Ropa (${ingresosRopa.toFixed(2)})<br/>- Gastos Negocio (${expensesBusiness.toFixed(2)})</div>
                         </div>
                         <div className="flex-1 text-right space-y-1">
                             <div className="text-[10px] text-slate-400"><span className="text-orange-400 font-bold">Retiros Personales:</span> -${expensesPersonal.toFixed(2)}</div>
@@ -1986,24 +2022,23 @@
                         </div>
                     </div>
                     
-                    <div className="grid grid-cols-4 gap-2 text-center text-xs font-bold">
+                    <div className="grid grid-cols-4 gap-2 text-center text-xs font-bold border-t border-white/10 pt-4">
                         {['pichincha', 'guayaquil', 'pacifico', 'efectivo'].map(bank => (
-                            <button key={bank} onClick={()=>setAuditBank(bank)} className="bg-white/10 p-2 rounded-xl border border-white/5 hover:bg-white/20 active:scale-95 transition-all text-left flex flex-col items-center justify-center">
+                            <button key={bank} onClick={()=>setAuditBank(bank)} className="bg-white/5 p-2 rounded-xl border border-white/10 hover:bg-white/20 active:scale-95 transition-all text-left flex flex-col items-center justify-center shadow-inner">
                                 <div className={`text-[9px] uppercase mb-1 ${bank==='pichincha'?'text-yellow-300':bank==='guayaquil'?'text-pink-300':bank==='pacifico'?'text-blue-300':'text-emerald-300'}`}>{bank}</div>
                                 ${balances[bank].toFixed(2)}
                             </button>
                         ))}
                     </div>
-                    <div className="mt-3 text-center text-[10px] font-bold text-slate-400">Total Físico en Cajas: ${currentBalanceGlobal.toFixed(2)}</div>
+                    <div className="mt-3 text-center text-[10px] font-bold text-slate-400">Total Físico en Cuentas Reales: ${currentBalanceGlobal.toFixed(2)}</div>
                 </div>
 
-                {/* CUERPO DEL ADMIN */}
                 <div className="flex-1 flex flex-col landscape:flex-row overflow-hidden">
                     <div className="flex-none landscape:w-1/2 overflow-y-auto p-4 space-y-3 bg-slate-50">
                         
                         {Object.keys(partnerStats).length > 0 && (
                             <div className="bg-purple-50 p-3 rounded-2xl shadow-sm border border-purple-100 mb-2">
-                                <h3 className="font-bold text-purple-800 mb-2 flex items-center gap-2 text-xs uppercase tracking-wide"><Icon.Users /> Estado Socias</h3>
+                                <h3 className="font-bold text-purple-800 mb-2 flex items-center gap-2 text-xs uppercase tracking-wide"><Icon.Users /> Estado Socias {accountingFrom && '(Filtro)'}</h3>
                                 <div className="space-y-2">
                                     {Object.entries(partnerStats).map(([partner, data]) => {
                                         const debt = data.sold - data.paid;
@@ -2031,11 +2066,11 @@
                             <div className="flex gap-2">
                                 <button onClick={() => setShowReport(true)} className="flex-1 py-3 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-xl font-bold flex flex-col items-center justify-center gap-1 hover:bg-indigo-100 transition-colors">
                                     <span className="text-lg">📊</span>
-                                    <span className="text-[10px]">VER VENTAS & DEUDAS</span>
+                                    <span className="text-[10px] text-center">VENTAS & DEUDAS<br/>{accountingFrom && '(Desde fecha)'}</span>
                                 </button>
                                 <button onClick={handleDownloadCSV} className="flex-1 py-3 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-xl font-bold flex flex-col items-center justify-center gap-1 hover:bg-emerald-100 transition-colors">
                                     <span className="text-lg">📥</span>
-                                    <span className="text-[10px]">DESCARGAR EXCEL/CSV</span>
+                                    <span className="text-[10px] text-center">EXCEL / CSV<br/>{accountingFrom && '(Desde fecha)'}</span>
                                 </button>
                             </div>
                         </div>
@@ -2051,15 +2086,17 @@
                     </div>
 
                     <div className="flex-1 landscape:w-1/2 overflow-y-auto p-4 pt-0 landscape:pt-4 border-t landscape:border-t-0 landscape:border-l border-slate-200">
-                        <h3 className="text-[10px] font-bold text-slate-400 uppercase mb-2 sticky top-0 bg-slate-50 py-2">Últimos Movimientos</h3>
+                        <h3 className="text-[10px] font-bold text-slate-400 uppercase mb-2 sticky top-0 bg-slate-50 py-2">Movimientos Registrados {accountingFrom && '(Filtro Activo)'}</h3>
                         <div className="space-y-2 pb-20">
                             {sortedExpenses.map(e => (<div key={e.id} onClick={() => setEditingExp(e)} className={`p-3 rounded-xl border flex justify-between items-center cursor-pointer hover:scale-[1.02] ${e.category === 'transfer_out' ? 'bg-indigo-50 border-indigo-100 opacity-70' : (e.category === 'personal' ? 'bg-orange-50 border-orange-100' : 'bg-white border-slate-100')}`}><div className="flex items-center gap-3"><div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${e.category === 'personal' ? 'bg-orange-100 text-orange-500' : 'bg-slate-100 text-slate-500'}`}>{e.category === 'personal' ? '😎' : (e.category === 'transfer_out' ? '💱' : '🏢')}</div><div className="overflow-hidden"><div className={`font-bold text-xs truncate ${e.category === 'personal' ? 'text-orange-800' : 'text-slate-700'}`}>{e.detail}</div><div className="text-[9px] text-slate-400">{new Date(safeISO(e.date)).toLocaleDateString()}</div></div></div><div className={`font-bold text-xs ${e.category === 'personal' ? 'text-orange-600' : 'text-slate-600'}`}>-${e.amount.toFixed(2)}</div></div>))}
+                            {sortedExpenses.length === 0 && <p className="text-center text-slate-400 text-xs py-4">No hay gastos desde esta fecha.</p>}
                         </div>
                     </div>
                 </div>
             </div>
         );
     };
+
 
 
     // --- NUEVO MÓDULO: YOUR'S CLOSET INVENTORY ---
