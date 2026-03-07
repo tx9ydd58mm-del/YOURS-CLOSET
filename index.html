@@ -2108,8 +2108,6 @@
         const [editLotDate, setEditLotDate] = useState("");
 
         const [detail, setDetail] = useState("");
-        
-        // 🧠 AHORA LAS FILAS INCLUYEN COLOR
         const [sizeBatches, setSizeBatches] = useState([{ size: "", qty: 1, color: "" }]); 
         
         const [mainCat, setMainCat] = useState("CAMISAS"); 
@@ -2168,7 +2166,6 @@
             if(c > 0) { const newPvp = c + (c * (m / 100)); setManualPvp(newPvp.toFixed(2)); }
         };
 
-        // 🧠 CEREBRO MULTI-FUNCIÓN: Extrae Categoría, Género y AHORA COLORES
         useEffect(() => {
             const words = detail.trim().split(/\s+/);
             let detectedCat = mainCat;
@@ -2204,7 +2201,6 @@
             }
             setSubCat(newSubCat);
 
-            // 🎨 DICCIONARIO DE COLORES PARA AUTO-RELLENO
             const dicColores = ["ROJO", "ROJA", "AZUL", "VERDE", "NEGRO", "NEGRA", "BLANCO", "BLANCA", "AMARILLO", "AMARILLA", "CAFE", "CAFÉ", "MARRON", "MARRÓN", "GRIS", "MORADO", "MORADA", "NARANJA", "ROSADO", "ROSA", "CELESTE", "VINO", "MOSTAZA", "BEIGE", "FUCSIA", "LILA"];
             const upperDetail = detail.toUpperCase();
             let detectedColor = "";
@@ -2268,7 +2264,6 @@
                 const tallaFinal = batch.size.trim().toUpperCase() || "U";
                 const colorFinal = (batch.color || "").trim().toUpperCase();
 
-                // Evita redundancia: Si detale dice "ROJA" y color dice "ROJA", no le pone "- ROJA"
                 let finalPrendaDetail = detail.trim();
                 if (colorFinal && !finalPrendaDetail.toUpperCase().includes(colorFinal)) {
                     finalPrendaDetail = `${finalPrendaDetail} - ${colorFinal}`;
@@ -2523,17 +2518,51 @@
 
                                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 mb-4 shadow-inner">
                                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-2 block">Tallas, Colores y Cantidades</label>
+                                    
+                                    {/* 🧠 VISOR MÁGICO DE CÓDIGOS GENERADOS */}
                                     <div className="space-y-2 mb-2">
-                                        {/* 🧠 UI CON CAJAS DE COLOR INTEGRADAS Y VACIADO AUTOMÁTICO AL TOCAR */}
-                                        {sizeBatches.map((batch, idx) => (
-                                            <div key={idx} className="flex gap-2">
-                                                <input value={batch.size} onChange={e=>handleUpdateSizeBatch(idx, 'size', e.target.value.toUpperCase())} placeholder="Talla" className="w-1/4 p-3 bg-white border border-slate-200 rounded-xl font-black text-center outline-none focus:border-indigo-400 text-xs md:text-sm" />
-                                                <input value={batch.color} onChange={e=>handleUpdateSizeBatch(idx, 'color', e.target.value.toUpperCase())} onFocus={e => e.target.select()} placeholder="Color (Opcional)" className="flex-1 p-3 bg-white border border-slate-200 rounded-xl font-bold text-center outline-none focus:border-indigo-400 text-xs md:text-sm" />
-                                                <input type="number" value={batch.qty} onChange={e=>handleUpdateSizeBatch(idx, 'qty', e.target.value)} className="w-1/5 p-3 bg-white border border-slate-200 rounded-xl font-black text-indigo-800 text-center outline-none focus:border-indigo-400" min="1" />
-                                                {sizeBatches.length > 1 && <button onClick={() => handleRemoveSizeBatch(idx)} className="w-10 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold flex items-center justify-center transition-colors">X</button>}
-                                            </div>
-                                        ))}
+                                        {(() => {
+                                            let currentOffset = 0;
+                                            const totalToGenerate = sizeBatches.reduce((acc, b) => acc + (parseInt(b.qty) || 0), 0);
+
+                                            return sizeBatches.map((batch, idx) => {
+                                                const qty = parseInt(batch.qty) || 0;
+                                                let codePreview = "";
+
+                                                if (qty > 0) {
+                                                    if (manualCode.trim() !== "") {
+                                                        const baseMan = manualCode.toUpperCase();
+                                                        if (totalToGenerate === 1) codePreview = baseMan;
+                                                        else if (qty === 1) codePreview = `${baseMan}-${currentOffset + 1}`;
+                                                        else codePreview = `${baseMan}-${currentOffset + 1} al ${currentOffset + qty}`;
+                                                    } else {
+                                                        const startNum = nextGlobalNumber + currentOffset;
+                                                        const endNum = startNum + qty - 1;
+                                                        if (qty === 1) codePreview = `${prefijo}-${String(startNum).padStart(3, '0')}`;
+                                                        else codePreview = `${prefijo}-${String(startNum).padStart(3, '0')} al ${String(endNum).padStart(3, '0')}`;
+                                                    }
+                                                }
+                                                currentOffset += qty;
+
+                                                return (
+                                                    <div key={idx} className="flex flex-col gap-1 relative">
+                                                        <div className="flex gap-2">
+                                                            <input value={batch.size} onChange={e=>handleUpdateSizeBatch(idx, 'size', e.target.value.toUpperCase())} placeholder="Talla" className="w-1/4 p-3 bg-white border border-slate-200 rounded-xl font-black text-center outline-none focus:border-indigo-400 text-xs md:text-sm" />
+                                                            <input value={batch.color} onChange={e=>handleUpdateSizeBatch(idx, 'color', e.target.value.toUpperCase())} onFocus={e => e.target.select()} placeholder="Color (Opcional)" className="flex-1 p-3 bg-white border border-slate-200 rounded-xl font-bold text-center outline-none focus:border-indigo-400 text-xs md:text-sm" />
+                                                            <input type="number" value={batch.qty} onChange={e=>handleUpdateSizeBatch(idx, 'qty', e.target.value)} className="w-1/5 p-3 bg-white border border-slate-200 rounded-xl font-black text-indigo-800 text-center outline-none focus:border-indigo-400" min="1" />
+                                                            {sizeBatches.length > 1 && <button onClick={() => handleRemoveSizeBatch(idx)} className="w-10 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold flex items-center justify-center transition-colors">X</button>}
+                                                        </div>
+                                                        {qty > 0 && (
+                                                            <div className="text-[9px] font-black text-indigo-500 uppercase tracking-widest text-right pr-1">
+                                                                🎟️ Código(s): {codePreview}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            });
+                                        })()}
                                     </div>
+                                    
                                     <button onClick={handleAddSizeBatch} className="w-full py-2 border-2 border-dashed border-indigo-300 text-indigo-600 font-bold rounded-xl text-xs hover:bg-indigo-100 transition-colors">+ Añadir otra fila</button>
                                 </div>
 
