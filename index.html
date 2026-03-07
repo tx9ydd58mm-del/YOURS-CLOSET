@@ -2093,9 +2093,6 @@
         );
     };
 
-
-
-    // --- NUEVO MÓDULO: YOUR'S CLOSET INVENTORY ---
     const InventoryView = ({ logic }) => {
         const [viewTab, setViewTab] = useState('ingreso'); 
         
@@ -2134,6 +2131,7 @@
         const [stockSearch, setStockSearch] = useState("");
         const [saveMsg, setSaveMsg] = useState("");
 
+        const [sortConfig, setSortConfig] = useState({ key: 'code', direction: 'asc' });
         const [showColsMenu, setShowColsMenu] = useState(false);
         const [cols, setCols] = useState({ codigo: true, detalle: true, talla: true, categoria: true, subcategoria: false, paca: true, costo: false, pvp: true, fecha: false, acciones: true });
 
@@ -2168,21 +2166,24 @@
             if(c > 0) { const newPvp = c + (c * (m / 100)); setManualPvp(newPvp.toFixed(2)); }
         };
 
+        // 🧠 CEREBRO COMPLETAMENTE LIMPIO: CERO AGRUPACIONES FORZADAS
         useEffect(() => {
             const words = detail.trim().split(/\s+/);
             let detectedCat = mainCat;
             
             if (words.length > 0 && words[0] !== "") {
                 let firstWord = words[0].toUpperCase();
-                if (["CAMISETA", "VIVIDI", "BIVIDI", "TOP", "T-SHIRT"].includes(firstWord)) firstWord = "CAMISETAS";
+                
+                // Solo pluraliza los más básicos para mantener orden visual, pero NO agrupa palabras distintas.
+                if (firstWord === "CAMISETA") firstWord = "CAMISETAS";
                 else if (firstWord === "CAMISA") firstWord = "CAMISAS";
-                else if (["PANTALON", "PANTALÓN", "JEAN", "JOGGER", "MONO"].includes(firstWord)) firstWord = "PANTALONES";
-                else if (["CHOMPA", "ABRIGO", "CHAQUETA"].includes(firstWord)) firstWord = "CHOMPAS";
-                else if (["SHORT", "BERMUDA"].includes(firstWord)) firstWord = "SHORTS";
+                else if (firstWord === "PANTALON" || firstWord === "PANTALÓN") firstWord = "PANTALONES";
+                else if (firstWord === "CHOMPA") firstWord = "CHOMPAS";
+                else if (firstWord === "SHORT") firstWord = "SHORTS";
                 else if (firstWord === "VESTIDO") firstWord = "VESTIDOS";
                 else if (firstWord === "BLUSA") firstWord = "BLUSAS";
                 else if (firstWord === "FALDA") firstWord = "FALDAS";
-                else if (["CONJUNTO", "TERNO"].includes(firstWord)) firstWord = "CONJUNTOS";
+                else if (firstWord === "CONJUNTO") firstWord = "CONJUNTOS";
                 
                 detectedCat = firstWord;
                 setMainCat(detectedCat); 
@@ -2210,7 +2211,6 @@
             return word.substring(0, 3).toUpperCase() || "XXX";
         };
 
-        // 🧠 NUEVA LÓGICA DE CÓDIGO GLOBAL SECUENCIAL
         const nextGlobalNumber = useMemo(() => {
             let max = 0;
             logic.inventory.forEach(item => {
@@ -2220,7 +2220,7 @@
                     if (!isNaN(num) && num > max) max = num;
                 }
             });
-            return max + 1; // El siguiente número disponible en toda la tienda
+            return max + 1;
         }, [logic.inventory]);
 
         const prefijo = `${getCatPrefix(mainCat)}-${subCat}`;
@@ -2261,8 +2261,7 @@
             
             setSaveMsg(`✅ ¡${totalToGenerate} prendas guardadas con éxito!`);
             setTimeout(() => setSaveMsg(""), 3000);
-            setSizeBatches([{ size: "", qty: 1 }]); 
-            setManualCode(""); 
+            setDetail(""); setSizeBatches([{ size: "", qty: 1 }]); setManualCode(""); 
         };
 
         const handleClearForm = () => { setDetail(""); setSizeBatches([{ size: "", qty: 1 }]); setManualCode(""); setManualPvp(""); setTargetMargin(""); setMainCat(""); };
@@ -2281,7 +2280,6 @@
             const parts = editItem.code.split('-');
             const oldPrefix = parts.slice(0, -1).join('-');
             
-            // Si cambia la categoría, actualiza las letras pero MANTIENE el número global
             if (oldPrefix !== newPrefix && parts.length >= 2) {
                 const globalNumber = parts[parts.length - 1];
                 newCode = `${newPrefix}-${globalNumber}`;
@@ -2303,11 +2301,57 @@
             setEditLot(null);
         };
 
+        const activeInventoryList = logic.inventory.filter(i => i.stock > 0);
+        
+        const filteredInventoryList = activeInventoryList.filter(item => {
+            if (!stockSearch.trim()) return true;
+            const term = stockSearch.toLowerCase();
+            return (item.code.toLowerCase().includes(term) || item.detail.toLowerCase().includes(term) || (item.size && item.size.toLowerCase().includes(term)) || (item.lotName && item.lotName.toLowerCase().includes(term)) || (item.mainCat && item.mainCat.toLowerCase().includes(term)));
+        });
+
+        const handleSort = (key) => {
+            let direction = 'asc';
+            if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
+            setSortConfig({ key, direction });
+        };
+
+        const sortedInventoryList = useMemo(() => {
+            let sortableItems = [...filteredInventoryList];
+            if (sortConfig.key) {
+                sortableItems.sort((a, b) => {
+                    let aValue = a[sortConfig.key] || '';
+                    let bValue = b[sortConfig.key] || '';
+
+                    if (sortConfig.key === 'code') {
+                        const numA = parseInt(String(aValue).split('-').pop()) || 0;
+                        const numB = parseInt(String(bValue).split('-').pop()) || 0;
+                        if (numA < numB) return sortConfig.direction === 'asc' ? -1 : 1;
+                        if (numA > numB) return sortConfig.direction === 'asc' ? 1 : -1;
+                        return 0;
+                    }
+
+                    if (sortConfig.key === 'cost' || sortConfig.key === 'price') {
+                        aValue = parseFloat(aValue) || 0;
+                        bValue = parseFloat(bValue) || 0;
+                        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+                        return 0;
+                    }
+
+                    const strA = String(aValue).toLowerCase();
+                    const strB = String(bValue).toLowerCase();
+                    if (strA < strB) return sortConfig.direction === 'asc' ? -1 : 1;
+                    if (strA > strB) return sortConfig.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
+            }
+            return sortableItems;
+        }, [filteredInventoryList, sortConfig]);
+
         const handleExportInventory = () => {
-            const activeInventory = logic.inventory.filter(i => i.stock > 0);
-            if(activeInventory.length === 0) return alert("El inventario está vacío.");
+            if(sortedInventoryList.length === 0) return alert("El inventario está vacío.");
             const header = ['CÓDIGO', 'DETALLE', 'TALLA', 'CATEGORÍA', 'SUBCATEGORÍA', 'LOTE/PACA', 'COSTO BASE', 'PVP NORMAL', 'FECHA INGRESO'];
-            const rows = activeInventory.map(item => {
+            const rows = sortedInventoryList.map(item => {
                 return [item.code, `"${item.detail}"`, item.size || "U", catNombres[item.mainCat] || item.mainCat, subNombres[item.subCat] || item.subCat, item.lotName || "SUELTA", (item.cost || 0).toFixed(2), (item.price || 0).toFixed(2), item.dateAdded ? item.dateAdded.split('T')[0] : 'N/A'];
             });
             const link = document.createElement("a");
@@ -2316,27 +2360,30 @@
             document.body.appendChild(link); link.click(); document.body.removeChild(link);
         };
 
-        const activeInventoryList = logic.inventory.filter(i => i.stock > 0);
-        const filteredInventoryList = activeInventoryList.filter(item => {
-            if (!stockSearch.trim()) return true;
-            const term = stockSearch.toLowerCase();
-            return (item.code.toLowerCase().includes(term) || item.detail.toLowerCase().includes(term) || (item.size && item.size.toLowerCase().includes(term)) || (item.lotName && item.lotName.toLowerCase().includes(term)) || (item.mainCat && item.mainCat.toLowerCase().includes(term)));
-        });
-        const stockStats = filteredInventoryList.reduce((acc, item) => { const k = `${catNombres[item.mainCat] || item.mainCat} ${subNombres[item.subCat] || item.subCat}`; if(!acc[k]) acc[k] = 0; acc[k] += item.stock; return acc; }, {});
+        const stockStats = sortedInventoryList.reduce((acc, item) => { const k = `${catNombres[item.mainCat] || item.mainCat} ${subNombres[item.subCat] || item.subCat}`; if(!acc[k]) acc[k] = 0; acc[k] += item.stock; return acc; }, {});
+        const totalStockCost = sortedInventoryList.reduce((acc, item) => acc + (parseFloat(item.cost) || 0), 0);
+        const totalStockPvp = sortedInventoryList.reduce((acc, item) => acc + (parseFloat(item.price) || 0), 0);
 
-        const totalStockCost = filteredInventoryList.reduce((acc, item) => acc + (parseFloat(item.cost) || 0), 0);
-        const totalStockPvp = filteredInventoryList.reduce((acc, item) => acc + (parseFloat(item.price) || 0), 0);
+        const ThSortable = ({ label, sortKey, show }) => {
+            if (!show) return null;
+            const isActive = sortConfig.key === sortKey;
+            return (
+                <th onClick={() => handleSort(sortKey)} className={`p-3 border-r border-slate-700 whitespace-nowrap cursor-pointer hover:bg-slate-600 transition-colors select-none ${label === 'Costo ($)' || label === 'PVP ($)' ? 'text-right' : ''} ${label === 'Talla' ? 'text-center' : ''}`}>
+                    <div className={`flex items-center gap-1 ${label === 'Costo ($)' || label === 'PVP ($)' ? 'justify-end' : ''} ${label === 'Talla' ? 'justify-center' : ''}`}>
+                        {label}
+                        <span className={`text-[10px] ${isActive ? 'text-emerald-400' : 'text-slate-500'}`}>
+                            {isActive ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '↕'}
+                        </span>
+                    </div>
+                </th>
+            );
+        };
 
         return (
             <div className="flex flex-col h-full bg-[#f0f2f5] relative">
                 
-                <datalist id="dynamic-categories">
-                    {dynamicCategories.map(cat => <option key={cat} value={cat} />)}
-                </datalist>
-                
-                <datalist id="dynamic-descriptions">
-                    {dynamicDescriptions.map(desc => <option key={desc} value={desc} />)}
-                </datalist>
+                <datalist id="dynamic-categories">{dynamicCategories.map(cat => <option key={cat} value={cat} />)}</datalist>
+                <datalist id="dynamic-descriptions">{dynamicDescriptions.map(desc => <option key={desc} value={desc} />)}</datalist>
 
                 {editLot && (
                     <div className="fixed inset-0 bg-black/80 z-[80] flex items-center justify-center p-6" onClick={() => setEditLot(null)}>
@@ -2373,7 +2420,7 @@
                 <div className="flex bg-white shadow-sm z-10 shrink-0">
                     <button onClick={() => setViewTab('pacas')} className={`flex-1 py-4 text-[10px] md:text-xs font-black uppercase tracking-widest border-b-4 transition-colors ${viewTab==='pacas' ? 'border-orange-500 text-orange-600 bg-orange-50' : 'border-transparent text-slate-400'}`}>1. Lotes/Pacas</button>
                     <button onClick={() => setViewTab('ingreso')} className={`flex-1 py-4 text-[10px] md:text-xs font-black uppercase tracking-widest border-b-4 transition-colors ${viewTab==='ingreso' ? 'border-amber-600 text-amber-700 bg-amber-50' : 'border-transparent text-slate-400'}`}>2. Ingreso</button>
-                    <button onClick={() => setViewTab('stock')} className={`flex-1 py-4 text-[10px] md:text-xs font-black uppercase tracking-widest border-b-4 transition-colors ${viewTab==='stock' ? 'border-indigo-600 text-indigo-700 bg-indigo-50' : 'border-transparent text-slate-400'}`}>3. Stock ({filteredInventoryList.length})</button>
+                    <button onClick={() => setViewTab('stock')} className={`flex-1 py-4 text-[10px] md:text-xs font-black uppercase tracking-widest border-b-4 transition-colors ${viewTab==='stock' ? 'border-indigo-600 text-indigo-700 bg-indigo-50' : 'border-transparent text-slate-400'}`}>3. Stock ({sortedInventoryList.length})</button>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-4">
@@ -2383,7 +2430,7 @@
                                 <h3 className="font-black text-slate-800 mb-2 flex items-center gap-2"><Icon.Box /> Registrar Paca Nueva</h3>
                                 <div className="space-y-3">
                                     <div><label className="text-[10px] font-bold text-slate-400 uppercase">Nombre (Ej: Paca Miami #1)</label><input value={lotNameIn} onChange={e=>setLotNameIn(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none focus:border-indigo-400" /></div>
-                                    <div className="flex gap-3"><div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Costo Total ($)</label><input type="number" value={lotCostIn} onChange={e=>setLotCostIn(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none" /></div><div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Prendas Esperadas</label><input type="number" value={lotQtyIn} onChange={e=>setLotQtyIn(e.target.value)} className="w-full p-3 bg-slate-50 border rounded-xl font-bold outline-none" /></div></div>
+                                    <div className="flex gap-3"><div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Costo Total ($)</label><input type="number" value={lotCostIn} onChange={e=>setLotCostIn(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" /></div><div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Prendas Esperadas</label><input type="number" value={lotQtyIn} onChange={e=>setLotQtyIn(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold outline-none" /></div></div>
                                 </div>
                                 <button onClick={() => { if(!lotNameIn) return alert("Ponle nombre"); logic.addLot(lotNameIn, lotCostIn, lotQtyIn); setLotNameIn(""); setLotCostIn(""); setLotQtyIn(""); }} className="w-full mt-4 py-4 bg-slate-900 text-white rounded-xl font-black shadow-lg active:scale-95 transition-all">GUARDAR PACA</button>
                             </div>
@@ -2468,7 +2515,7 @@
                                 {saveMsg && <div className="text-emerald-600 font-bold text-center mb-3 animate-pulse">{saveMsg}</div>}
                                 <div className="flex gap-2">
                                     <button onClick={handleClearForm} className="py-4 px-4 bg-slate-200 text-slate-600 hover:bg-slate-300 rounded-xl font-black text-sm active:scale-95 transition-all flex flex-col items-center justify-center leading-none shadow-sm"><span className="text-lg">🧹</span><span className="text-[8px] uppercase mt-1">Limpiar<br/>Datos</span></button>
-                                    <button onClick={handleSaveItem} className="flex-1 py-4 bg-slate-900 text-white rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center items-center gap-2">GUARDAR LOTE COMPLETO <Icon.Check /></button>
+                                    <button onClick={handleSaveItem} className="flex-1 py-4 bg-slate-900 text-white rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center items-center gap-2">GUARDAR <Icon.Check /></button>
                                 </div>
                             </div>
                         </div>
@@ -2525,7 +2572,7 @@
                                 <>
                                     <div className="grid grid-cols-2 gap-3">{Object.entries(stockStats).map(([cat, qty]) => (<div key={cat} className="bg-white p-4 rounded-2xl border text-center shadow-sm"><div className="text-2xl font-black text-indigo-600">{qty}</div><div className="text-[10px] font-bold text-slate-400 uppercase">{cat}</div></div>))}</div>
                                     <div className="bg-white rounded-2xl border overflow-hidden">
-                                        {filteredInventoryList.map((item, idx) => ( 
+                                        {sortedInventoryList.map((item, idx) => ( 
                                             <div key={idx} className="p-3 border-b flex justify-between items-center text-sm hover:bg-slate-50 group">
                                                 <div className="flex-1 pr-2">
                                                     <div className="font-bold text-slate-800 text-lg flex items-center gap-2">{item.code} <span className="text-[8px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded uppercase font-bold truncate max-w-[80px]">{item.lotName}</span></div>
@@ -2535,29 +2582,29 @@
                                                 <div className="flex gap-1 opacity-100 transition-opacity"><button onClick={() => openEditModal(item)} className="w-8 h-8 flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg shadow-sm"><Icon.Edit /></button><button onClick={() => setItemToDelete(item)} className="w-8 h-8 flex items-center justify-center text-red-500 bg-red-50 hover:bg-red-100 rounded-lg shadow-sm"><Icon.Trash /></button></div>
                                             </div>
                                         ))}
-                                        {filteredInventoryList.length === 0 && <div className="p-6 text-center text-slate-400 italic font-bold">No hay coincidencias.</div>}
+                                        {sortedInventoryList.length === 0 && <div className="p-6 text-center text-slate-400 italic font-bold">No hay coincidencias.</div>}
                                     </div>
                                 </>
                             ) : (
                                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
                                     <div className="overflow-x-auto pb-4">
                                         <table className="w-full text-left border-collapse min-w-[600px]">
-                                            <thead className="bg-slate-800 text-white text-[10px] uppercase font-black">
+                                            <thead className="bg-slate-800 text-white text-[10px] uppercase font-black select-none">
                                                 <tr>
-                                                    {cols.codigo && <th className="p-3 border-r border-slate-700 whitespace-nowrap">Código</th>}
-                                                    {cols.detalle && <th className="p-3 border-r border-slate-700 min-w-[150px] whitespace-nowrap">Detalle</th>}
-                                                    {cols.talla && <th className="p-3 border-r border-slate-700 whitespace-nowrap text-center">Talla</th>}
-                                                    {cols.categoria && <th className="p-3 border-r border-slate-700 whitespace-nowrap">Categoría</th>}
-                                                    {cols.subcategoria && <th className="p-3 border-r border-slate-700 whitespace-nowrap">Subcat.</th>}
-                                                    {cols.paca && <th className="p-3 border-r border-slate-700 whitespace-nowrap">Paca/Lote</th>}
-                                                    {cols.fecha && <th className="p-3 border-r border-slate-700 whitespace-nowrap">F. Ingreso</th>}
-                                                    {cols.costo && <th className="p-3 border-r border-slate-700 text-right whitespace-nowrap">Costo ($)</th>}
-                                                    {cols.pvp && <th className="p-3 border-r border-slate-700 text-right whitespace-nowrap">PVP ($)</th>}
+                                                    <ThSortable label="Código" sortKey="code" show={cols.codigo} />
+                                                    <ThSortable label="Detalle" sortKey="detail" show={cols.detalle} />
+                                                    <ThSortable label="Talla" sortKey="size" show={cols.talla} />
+                                                    <ThSortable label="Categoría" sortKey="mainCat" show={cols.categoria} />
+                                                    <ThSortable label="Subcat." sortKey="subCat" show={cols.subcategoria} />
+                                                    <ThSortable label="Paca/Lote" sortKey="lotName" show={cols.paca} />
+                                                    <ThSortable label="F. Ingreso" sortKey="dateAdded" show={cols.fecha} />
+                                                    <ThSortable label="Costo ($)" sortKey="cost" show={cols.costo} />
+                                                    <ThSortable label="PVP ($)" sortKey="price" show={cols.pvp} />
                                                     {cols.acciones && <th className="p-3 text-center whitespace-nowrap">Acciones</th>}
                                                 </tr>
                                             </thead>
                                             <tbody className="text-xs text-slate-700 font-medium">
-                                                {filteredInventoryList.map((item, idx) => (
+                                                {sortedInventoryList.map((item, idx) => (
                                                     <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                                                         {cols.codigo && <td className="p-3 border-r border-slate-100 font-bold text-indigo-700 whitespace-nowrap">{item.code}</td>}
                                                         {cols.detalle && <td className="p-3 border-r border-slate-100 whitespace-nowrap">{item.detail}</td>}
@@ -2578,7 +2625,7 @@
                                                 ))}
                                             </tbody>
                                         </table>
-                                        {filteredInventoryList.length === 0 && <div className="p-6 text-center text-slate-400 italic font-bold">No hay coincidencias.</div>}
+                                        {sortedInventoryList.length === 0 && <div className="p-6 text-center text-slate-400 italic font-bold">No hay coincidencias.</div>}
                                     </div>
                                 </div>
                             )}
