@@ -2110,7 +2110,7 @@
         const [editLotDate, setEditLotDate] = useState("");
 
         const [detail, setDetail] = useState("");
-        const [itemSize, setItemSize] = useState(""); // NUEVO: ESTADO PARA TALLA
+        const [itemSize, setItemSize] = useState(""); 
         const [batchQty, setBatchQty] = useState(1); 
         const [mainCat, setMainCat] = useState("CAM"); 
         const [subCat, setSubCat] = useState("H"); 
@@ -2121,18 +2121,21 @@
 
         const [editItem, setEditItem] = useState(null);
         const [editDetail, setEditDetail] = useState("");
-        const [editSize, setEditSize] = useState(""); // NUEVO: ESTADO EDICIÓN TALLA
+        const [editSize, setEditSize] = useState(""); 
         const [editPvp, setEditPvp] = useState("");
         const [itemToDelete, setItemToDelete] = useState(null); 
         
         const [stockViewMode, setStockViewMode] = useState('table'); 
         const [stockSearch, setStockSearch] = useState("");
+        
+        // MENSAJE DE GUARDADO SIN BLOQUEAR PANTALLA
+        const [saveMsg, setSaveMsg] = useState("");
 
         const [showColsMenu, setShowColsMenu] = useState(false);
         const [cols, setCols] = useState({
             codigo: true,
             detalle: true,
-            talla: true, // NUEVO: COLUMNA TALLA
+            talla: true, 
             categoria: false, 
             subcategoria: false,
             paca: true,
@@ -2162,10 +2165,23 @@
             if(c > 0) { const newPvp = c + (c * (m / 100)); setManualPvp(newPvp.toFixed(2)); }
         };
 
+        // CEREBRO EXPANDIDO (Con Buzos, vividi, etc.)
         useEffect(() => {
             const texto = detail.toLowerCase();
-            if (texto.includes("camiseta")) setMainCat("CMT"); else if (texto.includes("camisa")) setMainCat("CAM"); else if (texto.includes("pantalon") || texto.includes("pantalón") || texto.includes("jean")) setMainCat("PAN"); else if (texto.includes("chompa") || texto.includes("sueter") || texto.includes("abrigo")) setMainCat("CHO"); else if (texto.includes("short") || texto.includes("pantaloneta")) setMainCat("SHO"); else if (texto.includes("vestido")) setMainCat("VES"); else if (texto.includes("blusa")) setMainCat("BLU"); else if (texto.includes("falda")) setMainCat("FAL"); else if (texto.includes("conjunto")) setMainCat("CON");
-            if (texto.includes("niña")) setSubCat("NA"); else if (texto.includes("niño")) setSubCat("N"); else if (texto.includes("mujer") || texto.includes("dama")) setSubCat("M"); else if (texto.includes("hombre") || texto.includes("caballero")) setSubCat("H");
+            if (texto.includes("camiseta") || texto.includes("vividi") || texto.includes("bividi") || texto.includes("top") || texto.includes("t-shirt")) setMainCat("CMT"); 
+            else if (texto.includes("camisa")) setMainCat("CAM"); 
+            else if (texto.includes("pantalon") || texto.includes("pantalón") || texto.includes("jean") || texto.includes("jogger") || texto.includes("mono")) setMainCat("PAN"); 
+            else if (texto.includes("chompa") || texto.includes("sueter") || texto.includes("abrigo") || texto.includes("buzo") || texto.includes("hoodie") || texto.includes("chaqueta") || texto.includes("saco")) setMainCat("CHO"); 
+            else if (texto.includes("short") || texto.includes("pantaloneta") || texto.includes("bermuda")) setMainCat("SHO"); 
+            else if (texto.includes("vestido")) setMainCat("VES"); 
+            else if (texto.includes("blusa")) setMainCat("BLU"); 
+            else if (texto.includes("falda")) setMainCat("FAL"); 
+            else if (texto.includes("conjunto") || texto.includes("terno")) setMainCat("CON");
+
+            if (texto.includes("niña")) setSubCat("NA"); 
+            else if (texto.includes("niño")) setSubCat("N"); 
+            else if (texto.includes("mujer") || texto.includes("dama")) setSubCat("M"); 
+            else if (texto.includes("hombre") || texto.includes("caballero")) setSubCat("H");
         }, [detail]);
 
         const prefijo = `${mainCat}-${subCat}`;
@@ -2173,40 +2189,56 @@
         const codigoAutoVisual = `${prefijo}-${String(similares.length + 1).padStart(3, '0')}`;
 
         const handleSaveItem = () => {
-            if(!detail || !manualPvp) return alert("⚠️ Falta el detalle o el PVP.");
+            if(!detail || !manualPvp) return alert("⚠️ Falta la descripción o el PVP.");
             const costoFinal = currentCost;
             const nombrePaca = activeLot ? activeLot.name : "SUELTA";
             const lotId = activeLot ? activeLot.fireId : null;
             const cantidad = parseInt(batchQty) || 1;
+            const tallaFinal = itemSize || "U";
             
             for (let i = 0; i < cantidad; i++) {
                 let codigoFinalPrenda = "";
                 if (manualCode.trim() !== "") codigoFinalPrenda = cantidad > 1 ? `${manualCode.toUpperCase()}-${i+1}` : manualCode.toUpperCase();
                 else codigoFinalPrenda = `${prefijo}-${String(similares.length + 1 + i).padStart(3, '0')}`;
                 
-                // AQUÍ MANDAMOS LA TALLA (itemSize)
-                logic.addInventoryItem(codigoFinalPrenda, detail, itemSize || "U", mainCat, subCat, costoFinal, manualPvp, nombrePaca, lotId, 0);
+                logic.addInventoryItem(codigoFinalPrenda, detail, tallaFinal, mainCat, subCat, costoFinal, manualPvp, nombrePaca, lotId, 0);
             }
-            alert(`✅ ${cantidad} prenda(s) guardada(s).`);
-            setDetail(""); setItemSize(""); setManualPvp(""); setTargetMargin(""); setManualCode(""); setBatchQty(1); 
+            
+            // MENSAJE DE ÉXITO VISUAL Y LIMPIEZA PARCIAL
+            setSaveMsg(`✅ ¡${cantidad} prenda(s) Talla ${tallaFinal} guardada(s)!`);
+            setTimeout(() => setSaveMsg(""), 3000);
+            
+            setItemSize(""); 
+            setManualCode(""); 
+            setBatchQty(1); 
+            // OJO: YA NO BORRAMOS detail, manualPvp, ni targetMargin
+        };
+
+        const handleClearForm = () => {
+            setDetail(""); setItemSize(""); setBatchQty(1); setManualCode(""); setManualPvp(""); setTargetMargin("");
         };
 
         const openEditModal = (item) => {
-            setEditItem(item);
-            setEditDetail(item.detail);
-            setEditSize(item.size || "U"); // Cargamos la talla existente
-            setEditPvp(item.price);
+            setEditItem(item); setEditDetail(item.detail); setEditSize(item.size || "U"); setEditPvp(item.price);
         };
 
         const saveEditItem = async () => {
             let newMainCat = editItem.mainCat; let newSubCat = editItem.subCat;
             const texto = editDetail.toLowerCase();
-            if (texto.includes("camiseta")) newMainCat = "CMT"; else if (texto.includes("camisa")) newMainCat = "CAM"; else if (texto.includes("pantalon")) newMainCat = "PAN"; else if (texto.includes("chompa")) newMainCat = "CHO"; else if (texto.includes("short")) newMainCat = "SHO"; else if (texto.includes("vestido")) newMainCat = "VES"; else if (texto.includes("blusa")) newMainCat = "BLU"; else if (texto.includes("falda")) newMainCat = "FAL"; else if (texto.includes("conjunto")) newMainCat = "CON";
+            if (texto.includes("camiseta") || texto.includes("vividi") || texto.includes("bividi") || texto.includes("top")) newMainCat = "CMT"; 
+            else if (texto.includes("camisa")) newMainCat = "CAM"; 
+            else if (texto.includes("pantalon") || texto.includes("jogger")) newMainCat = "PAN"; 
+            else if (texto.includes("chompa") || texto.includes("buzo") || texto.includes("chaqueta") || texto.includes("hoodie")) newMainCat = "CHO"; 
+            else if (texto.includes("short") || texto.includes("bermuda")) newMainCat = "SHO"; 
+            else if (texto.includes("vestido")) newMainCat = "VES"; 
+            else if (texto.includes("blusa")) newMainCat = "BLU"; 
+            else if (texto.includes("falda")) newMainCat = "FAL"; 
+            else if (texto.includes("conjunto")) newMainCat = "CON";
+
             if (texto.includes("niña")) newSubCat = "NA"; else if (texto.includes("niño")) newSubCat = "N"; else if (texto.includes("mujer")) newSubCat = "M"; else if (texto.includes("hombre")) newSubCat = "H";
             const parts = editItem.code.split('-'); let newCode = editItem.code;
             if (parts.length === 3) newCode = `${newMainCat}-${newSubCat}-${parts[2]}`; 
             
-            // GUARDAMOS LA TALLA EDITADA
             await logic.updateInventoryItem(editItem.fireId, { detail: editDetail, size: editSize || "U", price: parseFloat(editPvp), mainCat: newMainCat, subCat: newSubCat, code: newCode });
             setEditItem(null);
         };
@@ -2228,7 +2260,6 @@
         const handleExportInventory = () => {
             const activeInventory = logic.inventory.filter(i => i.stock > 0);
             if(activeInventory.length === 0) return alert("El inventario está vacío.");
-            // EXCEL AHORA INCLUYE TALLA
             const header = ['CÓDIGO', 'DETALLE', 'TALLA', 'CATEGORÍA', 'SUBCATEGORÍA', 'LOTE/PACA', 'COSTO BASE', 'PVP NORMAL', 'FECHA INGRESO'];
             const rows = activeInventory.map(item => {
                 return [item.code, `"${item.detail}"`, item.size || "U", catNombres[item.mainCat] || item.mainCat, subNombres[item.subCat] || item.subCat, item.lotName || "SUELTA", (item.cost || 0).toFixed(2), (item.price || 0).toFixed(2), item.dateAdded ? item.dateAdded.split('T')[0] : 'N/A'];
@@ -2251,6 +2282,7 @@
         return (
             <div className="flex flex-col h-full bg-[#f0f2f5] relative">
                 
+                {/* MODALES REUTILIZABLES */}
                 {editLot && (
                     <div className="fixed inset-0 bg-black/80 z-[80] flex items-center justify-center p-6" onClick={() => setEditLot(null)}>
                         <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-2xl" onClick={e=>e.stopPropagation()}>
@@ -2266,7 +2298,6 @@
                     </div>
                 )}
 
-                {/* MODAL EDICIÓN PRENDA REPARADO PARA TALLA */}
                 {editItem && ( 
                     <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-6" onClick={() => setEditItem(null)}>
                         <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-2xl" onClick={e=>e.stopPropagation()}>
@@ -2372,7 +2403,6 @@
 
                             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
                                 
-                                {/* MODIFICADO: AHORA TIENE LA CAJA DE TALLA */}
                                 <div className="flex gap-2 mb-3">
                                     <div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1">Descripción de Prenda</label><input value={detail} onChange={e=>setDetail(e.target.value)} placeholder="Ej: Short azul" className="w-full p-4 bg-slate-50 border border-indigo-100 rounded-xl font-bold text-sm outline-none focus:border-indigo-400 shadow-inner" /></div>
                                     <div className="w-16"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1 text-center">Talla</label><input value={itemSize} onChange={e=>setItemSize(e.target.value.toUpperCase())} placeholder="U" className="w-full p-4 bg-white border border-slate-200 rounded-xl font-black text-center outline-none focus:border-indigo-400" /></div>
@@ -2381,7 +2411,16 @@
                                 
                                 <div className="grid grid-cols-2 gap-3 mb-3"><select value={mainCat} onChange={e=>setMainCat(e.target.value)} className="p-3 bg-slate-50 border rounded-xl font-bold text-xs uppercase text-slate-500"><option value="CAM">Camisas (CAM)</option><option value="CMT">Camisetas (CMT)</option><option value="PAN">Pantalones (PAN)</option><option value="CHO">Chompas (CHO)</option><option value="SHO">Shorts (SHO)</option><option value="VES">Vestidos (VES)</option><option value="BLU">Blusas (BLU)</option><option value="FAL">Faldas (FAL)</option><option value="CON">Conjuntos (CON)</option></select><select value={subCat} onChange={e=>setSubCat(e.target.value)} className="p-3 bg-slate-50 border rounded-xl font-bold text-xs uppercase text-slate-500"><option value="H">Hombre</option><option value="M">Mujer</option><option value="N">Niño</option><option value="NA">Niña</option></select></div>
                                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4 relative group"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest absolute -top-2 left-3 bg-slate-50 px-1">Código Visual (Editable)</label><div className="flex items-center gap-2 mt-1"><input value={manualCode} onChange={e=>setManualCode(e.target.value)} placeholder={codigoAutoVisual} className="w-full bg-transparent font-mono text-xl font-black text-slate-700 outline-none placeholder:text-slate-300 transition-colors" /></div></div>
-                                <button onClick={handleSaveItem} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center items-center gap-2">GUARDAR PRENDA(S) <Icon.Check /></button>
+                                
+                                {/* NUEVOS BOTONES DE GUARDAR Y LIMPIAR */}
+                                {saveMsg && <div className="text-emerald-600 font-bold text-center mb-3 animate-pulse">{saveMsg}</div>}
+                                <div className="flex gap-2">
+                                    <button onClick={handleClearForm} className="py-4 px-4 bg-slate-200 text-slate-600 hover:bg-slate-300 rounded-xl font-black text-sm active:scale-95 transition-all flex flex-col items-center justify-center leading-none">
+                                        <span className="text-lg">🧹</span>
+                                        <span className="text-[8px] uppercase mt-1">Limpiar<br/>Datos</span>
+                                    </button>
+                                    <button onClick={handleSaveItem} className="flex-1 py-4 bg-slate-900 text-white rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center items-center gap-2">GUARDAR PRENDA <Icon.Check /></button>
+                                </div>
                             </div>
                         </div>
                     )}
@@ -2432,7 +2471,7 @@
                                                     <div className="font-bold text-slate-800 text-lg flex items-center gap-2">{item.code} <span className="text-[8px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded uppercase font-bold truncate max-w-[80px]">{item.lotName}</span></div>
                                                     <div className="text-[11px] text-slate-500">{item.detail} <span className="ml-1 text-indigo-500 font-bold bg-indigo-50 px-1 rounded">Talla: {item.size || "U"}</span></div>
                                                 </div>
-                                                <div className="text-right mr-4"><div className="font-black text-emerald-600">${item.price.toFixed(2)}</div><div className="text-[9px] text-slate-400">Costo: ${(item.cost||0).toFixed(2)}</div></div>
+                                                <div className="text-right mr-4"><div className="font-black text-emerald-600">${item.price.toFixed(2)}</div><div className="text-[9px] text-slate-400">Costo Base: ${(item.cost||0).toFixed(2)}</div></div>
                                                 <div className="flex gap-1 opacity-100 transition-opacity"><button onClick={() => openEditModal(item)} className="w-8 h-8 flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg shadow-sm"><Icon.Edit /></button><button onClick={() => setItemToDelete(item)} className="w-8 h-8 flex items-center justify-center text-red-500 bg-red-50 hover:bg-red-100 rounded-lg shadow-sm"><Icon.Trash /></button></div>
                                             </div>
                                         ))}
