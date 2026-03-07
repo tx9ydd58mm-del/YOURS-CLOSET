@@ -334,7 +334,7 @@
 
 
     // --- LÓGICA DE NEGOCIO (V14 - PAPELERA CON DESTRUCCIÓN DEFINITIVA) ---
-    const useBusinessLogic = (user) => {
+      const useBusinessLogic = (user) => {
         const [clients, setClients] = useState([]);
         const [allSalesRaw, setAllSalesRaw] = useState([]); 
         const [payments, setPayments] = useState([]);
@@ -443,7 +443,6 @@
             return { code: 'ACC_PAID', label: 'ACUMULANDO', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
         };
 
-        // --- GESTIÓN DE PACAS E INVENTARIO ---
         const addLot = async (name, totalCost, totalQty) => {
             const unitCost = totalQty > 0 ? (totalCost / totalQty) : 0;
             try { 
@@ -452,16 +451,11 @@
             } catch(e) { alert("Error al crear paca."); }
         };
 
-        // NUEVA FUNCIÓN PARA EDITAR PACA
         const updateLot = async (fireId, name, totalCost, totalQty, dateStr) => {
             const unitCost = totalQty > 0 ? (totalCost / totalQty) : 0;
             try {
                 await window.fs.updateDoc(window.fs.doc(window.db, 'lots', fireId), {
-                    name: name.toUpperCase(),
-                    totalCost: parseFloat(totalCost),
-                    totalQty: parseInt(totalQty),
-                    unitCost,
-                    createdAt: safeISO(dateStr)
+                    name: name.toUpperCase(), totalCost: parseFloat(totalCost), totalQty: parseInt(totalQty), unitCost, createdAt: safeISO(dateStr)
                 });
                 alert("✅ Paca actualizada con éxito.");
             } catch(e) { alert("Error al actualizar paca: " + e.message); }
@@ -471,8 +465,9 @@
             try { await window.fs.updateDoc(window.fs.doc(window.db, 'lots', fireId), { status: currentStatus === 'open' ? 'closed' : 'open' }); } catch(e) {}
         };
 
-        const addInventoryItem = async (code, detail, mainCat, subCat, cost, price, lotName, lotId, discount = 0) => {
-            try { await window.fs.addDoc(window.fs.collection(window.db, 'inventory'), { code, detail, mainCat, subCat, cost: parseFloat(cost), price: parseFloat(price), lotName: lotName || "SUELTA", lotId: lotId || null, discount: parseFloat(discount), stock: 1, dateAdded: new Date().toISOString() }); } catch (error) { alert("🛑 ERROR: " + error.message); }
+        // MODIFICADO: AHORA RECIBE "SIZE" (Talla)
+        const addInventoryItem = async (code, detail, size, mainCat, subCat, cost, price, lotName, lotId, discount = 0) => {
+            try { await window.fs.addDoc(window.fs.collection(window.db, 'inventory'), { code, detail, size: size || "U", mainCat, subCat, cost: parseFloat(cost), price: parseFloat(price), lotName: lotName || "SUELTA", lotId: lotId || null, discount: parseFloat(discount), stock: 1, dateAdded: new Date().toISOString() }); } catch (error) { alert("🛑 ERROR: " + error.message); }
         };
 
         const markInventoryAsSold = async (fireId) => { if (!fireId) return; try { await window.fs.updateDoc(window.fs.doc(window.db, 'inventory', fireId), { stock: 0 }); } catch (error) {} };
@@ -2115,6 +2110,7 @@
         const [editLotDate, setEditLotDate] = useState("");
 
         const [detail, setDetail] = useState("");
+        const [itemSize, setItemSize] = useState(""); // NUEVO: ESTADO PARA TALLA
         const [batchQty, setBatchQty] = useState(1); 
         const [mainCat, setMainCat] = useState("CAM"); 
         const [subCat, setSubCat] = useState("H"); 
@@ -2125,6 +2121,7 @@
 
         const [editItem, setEditItem] = useState(null);
         const [editDetail, setEditDetail] = useState("");
+        const [editSize, setEditSize] = useState(""); // NUEVO: ESTADO EDICIÓN TALLA
         const [editPvp, setEditPvp] = useState("");
         const [itemToDelete, setItemToDelete] = useState(null); 
         
@@ -2135,8 +2132,9 @@
         const [cols, setCols] = useState({
             codigo: true,
             detalle: true,
+            talla: true, // NUEVO: COLUMNA TALLA
             categoria: false, 
-            subcategoria: false, // <--- NUEVO: AHORA ESTÁ SEPARADA
+            subcategoria: false,
             paca: true,
             costo: false, 
             pvp: true,
@@ -2161,10 +2159,7 @@
             setTargetMargin(val);
             const m = parseFloat(val) || 0;
             const c = parseFloat(currentCost) || 0;
-            if(c > 0) {
-                const newPvp = c + (c * (m / 100));
-                setManualPvp(newPvp.toFixed(2));
-            }
+            if(c > 0) { const newPvp = c + (c * (m / 100)); setManualPvp(newPvp.toFixed(2)); }
         };
 
         useEffect(() => {
@@ -2188,10 +2183,19 @@
                 let codigoFinalPrenda = "";
                 if (manualCode.trim() !== "") codigoFinalPrenda = cantidad > 1 ? `${manualCode.toUpperCase()}-${i+1}` : manualCode.toUpperCase();
                 else codigoFinalPrenda = `${prefijo}-${String(similares.length + 1 + i).padStart(3, '0')}`;
-                logic.addInventoryItem(codigoFinalPrenda, detail, mainCat, subCat, costoFinal, manualPvp, nombrePaca, lotId, 0);
+                
+                // AQUÍ MANDAMOS LA TALLA (itemSize)
+                logic.addInventoryItem(codigoFinalPrenda, detail, itemSize || "U", mainCat, subCat, costoFinal, manualPvp, nombrePaca, lotId, 0);
             }
             alert(`✅ ${cantidad} prenda(s) guardada(s).`);
-            setDetail(""); setManualPvp(""); setTargetMargin(""); setManualCode(""); setBatchQty(1); 
+            setDetail(""); setItemSize(""); setManualPvp(""); setTargetMargin(""); setManualCode(""); setBatchQty(1); 
+        };
+
+        const openEditModal = (item) => {
+            setEditItem(item);
+            setEditDetail(item.detail);
+            setEditSize(item.size || "U"); // Cargamos la talla existente
+            setEditPvp(item.price);
         };
 
         const saveEditItem = async () => {
@@ -2201,7 +2205,9 @@
             if (texto.includes("niña")) newSubCat = "NA"; else if (texto.includes("niño")) newSubCat = "N"; else if (texto.includes("mujer")) newSubCat = "M"; else if (texto.includes("hombre")) newSubCat = "H";
             const parts = editItem.code.split('-'); let newCode = editItem.code;
             if (parts.length === 3) newCode = `${newMainCat}-${newSubCat}-${parts[2]}`; 
-            await logic.updateInventoryItem(editItem.fireId, { detail: editDetail, price: parseFloat(editPvp), mainCat: newMainCat, subCat: newSubCat, code: newCode });
+            
+            // GUARDAMOS LA TALLA EDITADA
+            await logic.updateInventoryItem(editItem.fireId, { detail: editDetail, size: editSize || "U", price: parseFloat(editPvp), mainCat: newMainCat, subCat: newSubCat, code: newCode });
             setEditItem(null);
         };
 
@@ -2222,9 +2228,10 @@
         const handleExportInventory = () => {
             const activeInventory = logic.inventory.filter(i => i.stock > 0);
             if(activeInventory.length === 0) return alert("El inventario está vacío.");
-            const header = ['CÓDIGO', 'DETALLE', 'CATEGORÍA', 'SUBCATEGORÍA', 'LOTE/PACA', 'COSTO BASE', 'PVP NORMAL', 'FECHA INGRESO'];
+            // EXCEL AHORA INCLUYE TALLA
+            const header = ['CÓDIGO', 'DETALLE', 'TALLA', 'CATEGORÍA', 'SUBCATEGORÍA', 'LOTE/PACA', 'COSTO BASE', 'PVP NORMAL', 'FECHA INGRESO'];
             const rows = activeInventory.map(item => {
-                return [item.code, `"${item.detail}"`, catNombres[item.mainCat] || item.mainCat, subNombres[item.subCat] || item.subCat, item.lotName || "SUELTA", (item.cost || 0).toFixed(2), (item.price || 0).toFixed(2), item.dateAdded ? item.dateAdded.split('T')[0] : 'N/A'];
+                return [item.code, `"${item.detail}"`, item.size || "U", catNombres[item.mainCat] || item.mainCat, subNombres[item.subCat] || item.subCat, item.lotName || "SUELTA", (item.cost || 0).toFixed(2), (item.price || 0).toFixed(2), item.dateAdded ? item.dateAdded.split('T')[0] : 'N/A'];
             });
             const link = document.createElement("a");
             link.href = URL.createObjectURL(new Blob(["\uFEFF" + [header, ...rows].map(e => e.join(",")).join("\n")], { type: 'text/csv;charset=utf-8;' })); 
@@ -2236,7 +2243,7 @@
         const filteredInventoryList = activeInventoryList.filter(item => {
             if (!stockSearch.trim()) return true;
             const term = stockSearch.toLowerCase();
-            return (item.code.toLowerCase().includes(term) || item.detail.toLowerCase().includes(term) || (item.lotName && item.lotName.toLowerCase().includes(term)));
+            return (item.code.toLowerCase().includes(term) || item.detail.toLowerCase().includes(term) || (item.size && item.size.toLowerCase().includes(term)) || (item.lotName && item.lotName.toLowerCase().includes(term)));
         });
 
         const stockStats = filteredInventoryList.reduce((acc, item) => { const k = `${catNombres[item.mainCat] || item.mainCat} ${subNombres[item.subCat] || item.subCat}`; if(!acc[k]) acc[k] = 0; acc[k] += item.stock; return acc; }, {});
@@ -2259,7 +2266,21 @@
                     </div>
                 )}
 
-                {editItem && ( <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-6" onClick={() => setEditItem(null)}><div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-2xl" onClick={e=>e.stopPropagation()}><h3 className="font-black text-slate-800 text-xl flex justify-between">Editar <span className="text-indigo-600 text-sm bg-indigo-50 px-2 py-1 rounded">{editItem.code}</span></h3><div><label className="text-[10px] font-bold text-slate-400 uppercase">Detalle / Color</label><input value={editDetail} onChange={e=>setEditDetail(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold mt-1" /></div><div><label className="text-[10px] font-bold text-slate-400 uppercase">PVP</label><input type="number" value={editPvp} onChange={e=>setEditPvp(e.target.value)} className="w-full p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl font-black mt-1" /></div><div className="flex gap-2 pt-2"><button onClick={() => setEditItem(null)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-bold rounded-xl">Cancelar</button><button onClick={saveEditItem} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl">Guardar</button></div></div></div> )}
+                {/* MODAL EDICIÓN PRENDA REPARADO PARA TALLA */}
+                {editItem && ( 
+                    <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-6" onClick={() => setEditItem(null)}>
+                        <div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-2xl" onClick={e=>e.stopPropagation()}>
+                            <h3 className="font-black text-slate-800 text-xl flex justify-between">Editar <span className="text-indigo-600 text-sm bg-indigo-50 px-2 py-1 rounded">{editItem.code}</span></h3>
+                            <div><label className="text-[10px] font-bold text-slate-400 uppercase">Detalle / Color</label><input value={editDetail} onChange={e=>setEditDetail(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold mt-1" /></div>
+                            <div className="flex gap-2">
+                                <div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Talla</label><input value={editSize} onChange={e=>setEditSize(e.target.value.toUpperCase())} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold mt-1" placeholder="Ej: M" /></div>
+                                <div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">PVP</label><input type="number" value={editPvp} onChange={e=>setEditPvp(e.target.value)} className="w-full p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl font-black mt-1" /></div>
+                            </div>
+                            <div className="flex gap-2 pt-2"><button onClick={() => setEditItem(null)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-bold rounded-xl">Cancelar</button><button onClick={saveEditItem} className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl">Guardar</button></div>
+                        </div>
+                    </div> 
+                )}
+                
                 {itemToDelete && ( <div className="fixed inset-0 bg-black/80 z-[70] flex items-center justify-center p-6" onClick={() => setItemToDelete(null)}><div className="bg-white rounded-3xl p-6 w-full max-w-sm space-y-4 shadow-2xl text-center" onClick={e=>e.stopPropagation()}><div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-2"><Icon.Trash /></div><h3 className="font-black text-slate-800 text-2xl">¿Eliminar Prenda?</h3><p className="text-sm text-slate-500">Se borrará <strong className="text-red-600 bg-red-50 px-2 py-1 rounded">{itemToDelete.code}</strong>. No se puede deshacer.</p><div className="flex gap-2 pt-4"><button onClick={() => setItemToDelete(null)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-bold rounded-xl">Cancelar</button><button onClick={() => { logic.deleteInventoryItem(itemToDelete.fireId); setItemToDelete(null); }} className="flex-1 py-3 bg-red-600 text-white font-bold rounded-xl shadow-lg">Sí, Eliminar</button></div></div></div> )}
 
                 <div className="flex bg-white shadow-sm z-10 shrink-0">
@@ -2350,7 +2371,14 @@
                             </div>
 
                             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
-                                <div className="flex gap-2 mb-3"><div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1">Descripción de Prenda</label><input value={detail} onChange={e=>setDetail(e.target.value)} placeholder="Ej: Short mujer azul" className="w-full p-4 bg-slate-50 border border-indigo-100 rounded-xl font-bold text-sm outline-none focus:border-indigo-400 shadow-inner" /></div><div className="w-24"><label className="text-[10px] font-bold text-indigo-500 uppercase ml-1 block mb-1">Lote (Cant)</label><input type="number" value={batchQty} onChange={e=>setBatchQty(e.target.value)} className="w-full p-4 bg-indigo-50 border border-indigo-200 rounded-xl font-black text-indigo-800 text-center" min="1" /></div></div>
+                                
+                                {/* MODIFICADO: AHORA TIENE LA CAJA DE TALLA */}
+                                <div className="flex gap-2 mb-3">
+                                    <div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1">Descripción de Prenda</label><input value={detail} onChange={e=>setDetail(e.target.value)} placeholder="Ej: Short azul" className="w-full p-4 bg-slate-50 border border-indigo-100 rounded-xl font-bold text-sm outline-none focus:border-indigo-400 shadow-inner" /></div>
+                                    <div className="w-16"><label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1 text-center">Talla</label><input value={itemSize} onChange={e=>setItemSize(e.target.value.toUpperCase())} placeholder="U" className="w-full p-4 bg-white border border-slate-200 rounded-xl font-black text-center outline-none focus:border-indigo-400" /></div>
+                                    <div className="w-20"><label className="text-[10px] font-bold text-indigo-500 uppercase ml-1 block mb-1 text-center">Cant</label><input type="number" value={batchQty} onChange={e=>setBatchQty(e.target.value)} className="w-full p-4 bg-indigo-50 border border-indigo-200 rounded-xl font-black text-indigo-800 text-center" min="1" /></div>
+                                </div>
+                                
                                 <div className="grid grid-cols-2 gap-3 mb-3"><select value={mainCat} onChange={e=>setMainCat(e.target.value)} className="p-3 bg-slate-50 border rounded-xl font-bold text-xs uppercase text-slate-500"><option value="CAM">Camisas (CAM)</option><option value="CMT">Camisetas (CMT)</option><option value="PAN">Pantalones (PAN)</option><option value="CHO">Chompas (CHO)</option><option value="SHO">Shorts (SHO)</option><option value="VES">Vestidos (VES)</option><option value="BLU">Blusas (BLU)</option><option value="FAL">Faldas (FAL)</option><option value="CON">Conjuntos (CON)</option></select><select value={subCat} onChange={e=>setSubCat(e.target.value)} className="p-3 bg-slate-50 border rounded-xl font-bold text-xs uppercase text-slate-500"><option value="H">Hombre</option><option value="M">Mujer</option><option value="N">Niño</option><option value="NA">Niña</option></select></div>
                                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4 relative group"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest absolute -top-2 left-3 bg-slate-50 px-1">Código Visual (Editable)</label><div className="flex items-center gap-2 mt-1"><input value={manualCode} onChange={e=>setManualCode(e.target.value)} placeholder={codigoAutoVisual} className="w-full bg-transparent font-mono text-xl font-black text-slate-700 outline-none placeholder:text-slate-300 transition-colors" /></div></div>
                                 <button onClick={handleSaveItem} className="w-full py-4 bg-slate-900 text-white rounded-xl font-black text-lg shadow-xl active:scale-95 transition-all flex justify-center items-center gap-2">GUARDAR PRENDA(S) <Icon.Check /></button>
@@ -2400,8 +2428,11 @@
                                     <div className="bg-white rounded-2xl border overflow-hidden">
                                         {filteredInventoryList.map((item, idx) => ( 
                                             <div key={idx} className="p-3 border-b flex justify-between items-center text-sm hover:bg-slate-50 group">
-                                                <div className="flex-1 pr-2"><div className="font-bold text-slate-800 text-lg flex items-center gap-2">{item.code} <span className="text-[8px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded uppercase font-bold truncate max-w-[80px]">{item.lotName}</span></div><div className="text-[11px] text-slate-500">{item.detail}</div></div>
-                                                <div className="text-right mr-4"><div className="font-black text-emerald-600">${item.price.toFixed(2)}</div><div className="text-[9px] text-slate-400">Costo Base: ${(item.cost||0).toFixed(2)}</div></div>
+                                                <div className="flex-1 pr-2">
+                                                    <div className="font-bold text-slate-800 text-lg flex items-center gap-2">{item.code} <span className="text-[8px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded uppercase font-bold truncate max-w-[80px]">{item.lotName}</span></div>
+                                                    <div className="text-[11px] text-slate-500">{item.detail} <span className="ml-1 text-indigo-500 font-bold bg-indigo-50 px-1 rounded">Talla: {item.size || "U"}</span></div>
+                                                </div>
+                                                <div className="text-right mr-4"><div className="font-black text-emerald-600">${item.price.toFixed(2)}</div><div className="text-[9px] text-slate-400">Costo: ${(item.cost||0).toFixed(2)}</div></div>
                                                 <div className="flex gap-1 opacity-100 transition-opacity"><button onClick={() => openEditModal(item)} className="w-8 h-8 flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg shadow-sm"><Icon.Edit /></button><button onClick={() => setItemToDelete(item)} className="w-8 h-8 flex items-center justify-center text-red-500 bg-red-50 hover:bg-red-100 rounded-lg shadow-sm"><Icon.Trash /></button></div>
                                             </div>
                                         ))}
@@ -2416,6 +2447,7 @@
                                                 <tr>
                                                     {cols.codigo && <th className="p-3 border-r border-slate-700 whitespace-nowrap">Código</th>}
                                                     {cols.detalle && <th className="p-3 border-r border-slate-700 min-w-[150px] whitespace-nowrap">Detalle</th>}
+                                                    {cols.talla && <th className="p-3 border-r border-slate-700 whitespace-nowrap text-center">Talla</th>}
                                                     {cols.categoria && <th className="p-3 border-r border-slate-700 whitespace-nowrap">Categoría</th>}
                                                     {cols.subcategoria && <th className="p-3 border-r border-slate-700 whitespace-nowrap">Subcat.</th>}
                                                     {cols.paca && <th className="p-3 border-r border-slate-700 whitespace-nowrap">Paca/Lote</th>}
@@ -2430,6 +2462,7 @@
                                                     <tr key={idx} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                                                         {cols.codigo && <td className="p-3 border-r border-slate-100 font-bold text-indigo-700 whitespace-nowrap">{item.code}</td>}
                                                         {cols.detalle && <td className="p-3 border-r border-slate-100 whitespace-nowrap">{item.detail}</td>}
+                                                        {cols.talla && <td className="p-3 border-r border-slate-100 font-black text-slate-500 whitespace-nowrap text-center">{item.size || "U"}</td>}
                                                         {cols.categoria && <td className="p-3 border-r border-slate-100 whitespace-nowrap">{catNombres[item.mainCat]||item.mainCat}</td>}
                                                         {cols.subcategoria && <td className="p-3 border-r border-slate-100 whitespace-nowrap">{subNombres[item.subCat]||item.subCat}</td>}
                                                         {cols.paca && <td className="p-3 border-r border-slate-100 text-[10px] uppercase font-bold text-slate-400 whitespace-nowrap">{item.lotName || 'SUELTA'}</td>}
