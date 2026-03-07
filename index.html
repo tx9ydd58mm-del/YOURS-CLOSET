@@ -2108,7 +2108,9 @@
         const [editLotDate, setEditLotDate] = useState("");
 
         const [detail, setDetail] = useState("");
-        const [sizeBatches, setSizeBatches] = useState([{ size: "", qty: 1 }]); 
+        
+        // 🧠 AHORA LAS FILAS INCLUYEN COLOR
+        const [sizeBatches, setSizeBatches] = useState([{ size: "", qty: 1, color: "" }]); 
         
         const [mainCat, setMainCat] = useState("CAMISAS"); 
         const [subCat, setSubCat] = useState("H"); 
@@ -2166,7 +2168,7 @@
             if(c > 0) { const newPvp = c + (c * (m / 100)); setManualPvp(newPvp.toFixed(2)); }
         };
 
-        // 🧠 CEREBRO COMPLETAMENTE LIMPIO: CERO AGRUPACIONES FORZADAS
+        // 🧠 CEREBRO MULTI-FUNCIÓN: Extrae Categoría, Género y AHORA COLORES
         useEffect(() => {
             const words = detail.trim().split(/\s+/);
             let detectedCat = mainCat;
@@ -2174,7 +2176,6 @@
             if (words.length > 0 && words[0] !== "") {
                 let firstWord = words[0].toUpperCase();
                 
-                // Solo pluraliza los más básicos para mantener orden visual, pero NO agrupa palabras distintas.
                 if (firstWord === "CAMISETA") firstWord = "CAMISETAS";
                 else if (firstWord === "CAMISA") firstWord = "CAMISAS";
                 else if (firstWord === "PANTALON" || firstWord === "PANTALÓN") firstWord = "PANTALONES";
@@ -2202,6 +2203,23 @@
                 if (["BLUSAS", "FALDAS", "VESTIDOS"].includes(detectedCat)) newSubCat = "M";
             }
             setSubCat(newSubCat);
+
+            // 🎨 DICCIONARIO DE COLORES PARA AUTO-RELLENO
+            const dicColores = ["ROJO", "ROJA", "AZUL", "VERDE", "NEGRO", "NEGRA", "BLANCO", "BLANCA", "AMARILLO", "AMARILLA", "CAFE", "CAFÉ", "MARRON", "MARRÓN", "GRIS", "MORADO", "MORADA", "NARANJA", "ROSADO", "ROSA", "CELESTE", "VINO", "MOSTAZA", "BEIGE", "FUCSIA", "LILA"];
+            const upperDetail = detail.toUpperCase();
+            let detectedColor = "";
+            for (const col of dicColores) {
+                if (new RegExp(`\\b${col}\\b`).test(upperDetail)) { detectedColor = col; break; }
+            }
+            
+            if (detectedColor) {
+                setSizeBatches(prev => {
+                    const newB = [...prev];
+                    if (!newB[0].color || dicColores.includes(newB[0].color)) newB[0].color = detectedColor;
+                    return newB;
+                });
+            }
+
         }, [detail]);
 
         const getCatPrefix = (catWord) => {
@@ -2226,7 +2244,7 @@
         const prefijo = `${getCatPrefix(mainCat)}-${subCat}`;
         const codigoAutoVisual = `${prefijo}-${String(nextGlobalNumber).padStart(3, '0')}`;
 
-        const handleAddSizeBatch = () => setSizeBatches([...sizeBatches, { size: "", qty: 1 }]);
+        const handleAddSizeBatch = () => setSizeBatches([...sizeBatches, { size: "", color: "", qty: 1 }]);
         const handleRemoveSizeBatch = (index) => setSizeBatches(sizeBatches.filter((_, i) => i !== index));
         const handleUpdateSizeBatch = (index, field, value) => {
             const newBatches = [...sizeBatches];
@@ -2248,23 +2266,30 @@
             for (let batch of sizeBatches) {
                 const cantidad = parseInt(batch.qty) || 0;
                 const tallaFinal = batch.size.trim().toUpperCase() || "U";
+                const colorFinal = (batch.color || "").trim().toUpperCase();
+
+                // Evita redundancia: Si detale dice "ROJA" y color dice "ROJA", no le pone "- ROJA"
+                let finalPrendaDetail = detail.trim();
+                if (colorFinal && !finalPrendaDetail.toUpperCase().includes(colorFinal)) {
+                    finalPrendaDetail = `${finalPrendaDetail} - ${colorFinal}`;
+                }
 
                 for (let i = 0; i < cantidad; i++) {
                     let codigoFinalPrenda = "";
                     if (manualCode.trim() !== "") codigoFinalPrenda = totalToGenerate > 1 ? `${manualCode.toUpperCase()}-${offset + 1}` : manualCode.toUpperCase();
                     else codigoFinalPrenda = `${prefijo}-${String(nextGlobalNumber + offset).padStart(3, '0')}`;
                     
-                    logic.addInventoryItem(codigoFinalPrenda, detail, tallaFinal, catFinal, subCat, costoFinal, manualPvp, nombrePaca, lotId, 0);
+                    logic.addInventoryItem(codigoFinalPrenda, finalPrendaDetail, tallaFinal, catFinal, subCat, costoFinal, manualPvp, nombrePaca, lotId, 0);
                     offset++;
                 }
             }
             
             setSaveMsg(`✅ ¡${totalToGenerate} prendas guardadas con éxito!`);
             setTimeout(() => setSaveMsg(""), 3000);
-            setDetail(""); setSizeBatches([{ size: "", qty: 1 }]); setManualCode(""); 
+            setDetail(""); setSizeBatches([{ size: "", color: "", qty: 1 }]); setManualCode(""); 
         };
 
-        const handleClearForm = () => { setDetail(""); setSizeBatches([{ size: "", qty: 1 }]); setManualCode(""); setManualPvp(""); setTargetMargin(""); setMainCat(""); };
+        const handleClearForm = () => { setDetail(""); setSizeBatches([{ size: "", color: "", qty: 1 }]); setManualCode(""); setManualPvp(""); setTargetMargin(""); setMainCat(""); };
 
         const openEditModal = (item) => {
             setEditItem(item); setEditDetail(item.detail); setEditSize(item.size || "U"); setEditPvp(item.price);
@@ -2487,8 +2512,8 @@
                             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
                                 
                                 <div className="mb-3">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1">Descripción de la Prenda</label>
-                                    <input list="dynamic-descriptions" value={detail} onChange={e=>setDetail(e.target.value)} placeholder="Ej: Blusa roja con botones" className="w-full p-4 bg-slate-50 border border-indigo-100 rounded-xl font-bold text-sm outline-none focus:border-indigo-400 shadow-inner" />
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1">Descripción Base</label>
+                                    <input list="dynamic-descriptions" value={detail} onChange={e=>setDetail(e.target.value)} placeholder="Ej: Camisa de botones" className="w-full p-4 bg-slate-50 border border-indigo-100 rounded-xl font-bold text-sm outline-none focus:border-indigo-400 shadow-inner" />
                                 </div>
                                 
                                 <div className="grid grid-cols-2 gap-3 mb-4">
@@ -2497,17 +2522,19 @@
                                 </div>
 
                                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 mb-4 shadow-inner">
-                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-2 block">Tallas y Cantidades</label>
+                                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-2 block">Tallas, Colores y Cantidades</label>
                                     <div className="space-y-2 mb-2">
+                                        {/* 🧠 UI CON CAJAS DE COLOR INTEGRADAS Y VACIADO AUTOMÁTICO AL TOCAR */}
                                         {sizeBatches.map((batch, idx) => (
                                             <div key={idx} className="flex gap-2">
-                                                <input value={batch.size} onChange={e=>handleUpdateSizeBatch(idx, 'size', e.target.value.toUpperCase())} placeholder="Talla (S, M...)" className="w-1/2 p-3 bg-white border border-slate-200 rounded-xl font-black text-center outline-none focus:border-indigo-400" />
-                                                <input type="number" value={batch.qty} onChange={e=>handleUpdateSizeBatch(idx, 'qty', e.target.value)} className="w-1/3 p-3 bg-white border border-slate-200 rounded-xl font-black text-indigo-800 text-center outline-none focus:border-indigo-400" min="1" />
-                                                {sizeBatches.length > 1 && <button onClick={() => handleRemoveSizeBatch(idx)} className="w-12 bg-red-100 text-red-600 hover:bg-red-200 rounded-xl font-bold flex items-center justify-center transition-colors">X</button>}
+                                                <input value={batch.size} onChange={e=>handleUpdateSizeBatch(idx, 'size', e.target.value.toUpperCase())} placeholder="Talla" className="w-1/4 p-3 bg-white border border-slate-200 rounded-xl font-black text-center outline-none focus:border-indigo-400 text-xs md:text-sm" />
+                                                <input value={batch.color} onChange={e=>handleUpdateSizeBatch(idx, 'color', e.target.value.toUpperCase())} onFocus={e => e.target.select()} placeholder="Color (Opcional)" className="flex-1 p-3 bg-white border border-slate-200 rounded-xl font-bold text-center outline-none focus:border-indigo-400 text-xs md:text-sm" />
+                                                <input type="number" value={batch.qty} onChange={e=>handleUpdateSizeBatch(idx, 'qty', e.target.value)} className="w-1/5 p-3 bg-white border border-slate-200 rounded-xl font-black text-indigo-800 text-center outline-none focus:border-indigo-400" min="1" />
+                                                {sizeBatches.length > 1 && <button onClick={() => handleRemoveSizeBatch(idx)} className="w-10 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-bold flex items-center justify-center transition-colors">X</button>}
                                             </div>
                                         ))}
                                     </div>
-                                    <button onClick={handleAddSizeBatch} className="w-full py-2 border-2 border-dashed border-indigo-300 text-indigo-600 font-bold rounded-xl text-xs hover:bg-indigo-100 transition-colors">+ Añadir otra talla</button>
+                                    <button onClick={handleAddSizeBatch} className="w-full py-2 border-2 border-dashed border-indigo-300 text-indigo-600 font-bold rounded-xl text-xs hover:bg-indigo-100 transition-colors">+ Añadir otra fila</button>
                                 </div>
 
                                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4 relative group"><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest absolute -top-2 left-3 bg-slate-50 px-1">Código Visual Base</label><div className="flex items-center gap-2 mt-1"><input value={manualCode} onChange={e=>setManualCode(e.target.value)} placeholder={codigoAutoVisual} className="w-full bg-transparent font-mono text-xl font-black text-slate-700 outline-none placeholder:text-slate-300 transition-colors" /></div></div>
