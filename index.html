@@ -2146,7 +2146,6 @@
             return [...new Set([...base, ...fromDb])].filter(c => c).sort();
         }, [logic.inventory]);
 
-        // 🧠 NUEVO: DICCIONARIO PREDICTIVO PARA DESCRIPCIONES (AUTOCOMPLETADO)
         const dynamicDescriptions = useMemo(() => {
             const fromDb = logic.inventory.map(i => i.detail.trim());
             return [...new Set(fromDb)].filter(d => d).sort();
@@ -2171,10 +2170,10 @@
 
         useEffect(() => {
             const words = detail.trim().split(/\s+/);
+            let detectedCat = mainCat;
+            
             if (words.length > 0 && words[0] !== "") {
                 let firstWord = words[0].toUpperCase();
-                
-                // 🧠 DICCIONARIO ACTUALIZADO (Saco, Buzo y Suéter ahora son independientes)
                 if (["CAMISETA", "VIVIDI", "BIVIDI", "TOP", "T-SHIRT"].includes(firstWord)) firstWord = "CAMISETAS";
                 else if (firstWord === "CAMISA") firstWord = "CAMISAS";
                 else if (["PANTALON", "PANTALÓN", "JEAN", "JOGGER", "MONO"].includes(firstWord)) firstWord = "PANTALONES";
@@ -2185,16 +2184,23 @@
                 else if (firstWord === "FALDA") firstWord = "FALDAS";
                 else if (["CONJUNTO", "TERNO"].includes(firstWord)) firstWord = "CONJUNTOS";
                 
-                setMainCat(firstWord); 
+                detectedCat = firstWord;
+                setMainCat(detectedCat); 
             } else {
                 setMainCat("");
             }
 
             const texto = detail.toLowerCase();
-            if (texto.includes("niña")) setSubCat("NA"); 
-            else if (texto.includes("niño")) setSubCat("N"); 
-            else if (texto.includes("mujer") || texto.includes("dama")) setSubCat("M"); 
-            else if (texto.includes("hombre") || texto.includes("caballero")) setSubCat("H");
+            let newSubCat = subCat;
+            if (texto.includes("niña")) newSubCat = "NA"; 
+            else if (texto.includes("niño")) newSubCat = "N"; 
+            else if (texto.includes("mujer") || texto.includes("dama")) newSubCat = "M"; 
+            else if (texto.includes("hombre") || texto.includes("caballero")) newSubCat = "H";
+            else if (texto.includes("unisex")) newSubCat = "U";
+            else {
+                if (["BLUSAS", "FALDAS", "VESTIDOS"].includes(detectedCat)) newSubCat = "M";
+            }
+            setSubCat(newSubCat);
         }, [detail]);
 
         const getCatPrefix = (catWord) => {
@@ -2204,9 +2210,21 @@
             return word.substring(0, 3).toUpperCase() || "XXX";
         };
 
+        // 🧠 NUEVA LÓGICA DE CÓDIGO GLOBAL SECUENCIAL
+        const nextGlobalNumber = useMemo(() => {
+            let max = 0;
+            logic.inventory.forEach(item => {
+                if (item.code) {
+                    const parts = item.code.split('-');
+                    const num = parseInt(parts[parts.length - 1], 10);
+                    if (!isNaN(num) && num > max) max = num;
+                }
+            });
+            return max + 1; // El siguiente número disponible en toda la tienda
+        }, [logic.inventory]);
+
         const prefijo = `${getCatPrefix(mainCat)}-${subCat}`;
-        const similares = logic.inventory.filter(i => i.code && i.code.startsWith(prefijo));
-        const codigoAutoVisual = `${prefijo}-${String(similares.length + 1).padStart(3, '0')}`;
+        const codigoAutoVisual = `${prefijo}-${String(nextGlobalNumber).padStart(3, '0')}`;
 
         const handleAddSizeBatch = () => setSizeBatches([...sizeBatches, { size: "", qty: 1 }]);
         const handleRemoveSizeBatch = (index) => setSizeBatches(sizeBatches.filter((_, i) => i !== index));
@@ -2234,7 +2252,7 @@
                 for (let i = 0; i < cantidad; i++) {
                     let codigoFinalPrenda = "";
                     if (manualCode.trim() !== "") codigoFinalPrenda = totalToGenerate > 1 ? `${manualCode.toUpperCase()}-${offset + 1}` : manualCode.toUpperCase();
-                    else codigoFinalPrenda = `${prefijo}-${String(similares.length + 1 + offset).padStart(3, '0')}`;
+                    else codigoFinalPrenda = `${prefijo}-${String(nextGlobalNumber + offset).padStart(3, '0')}`;
                     
                     logic.addInventoryItem(codigoFinalPrenda, detail, tallaFinal, catFinal, subCat, costoFinal, manualPvp, nombrePaca, lotId, 0);
                     offset++;
@@ -2260,10 +2278,13 @@
             const newPrefix = `${getCatPrefix(catFinal)}-${editSubCat}`;
             let newCode = editItem.code;
             
-            const oldPrefix = editItem.code.split('-').slice(0,2).join('-');
-            if (oldPrefix !== newPrefix) {
-                const parts = editItem.code.split('-');
-                if (parts.length === 3) newCode = `${newPrefix}-${parts[2]}`;
+            const parts = editItem.code.split('-');
+            const oldPrefix = parts.slice(0, -1).join('-');
+            
+            // Si cambia la categoría, actualiza las letras pero MANTIENE el número global
+            if (oldPrefix !== newPrefix && parts.length >= 2) {
+                const globalNumber = parts[parts.length - 1];
+                newCode = `${newPrefix}-${globalNumber}`;
             }
             
             await logic.updateInventoryItem(editItem.fireId, { 
@@ -2303,7 +2324,6 @@
         });
         const stockStats = filteredInventoryList.reduce((acc, item) => { const k = `${catNombres[item.mainCat] || item.mainCat} ${subNombres[item.subCat] || item.subCat}`; if(!acc[k]) acc[k] = 0; acc[k] += item.stock; return acc; }, {});
 
-        // 💰 NUEVO: CÁLCULOS DEL VALOR TOTAL DEL STOCK (Se ajusta con la búsqueda)
         const totalStockCost = filteredInventoryList.reduce((acc, item) => acc + (parseFloat(item.cost) || 0), 0);
         const totalStockPvp = filteredInventoryList.reduce((acc, item) => acc + (parseFloat(item.price) || 0), 0);
 
@@ -2314,7 +2334,6 @@
                     {dynamicCategories.map(cat => <option key={cat} value={cat} />)}
                 </datalist>
                 
-                {/* 🧠 NUEVO DATALIST PARA PREDICCIÓN DE DESCRIPCIONES */}
                 <datalist id="dynamic-descriptions">
                     {dynamicDescriptions.map(desc => <option key={desc} value={desc} />)}
                 </datalist>
@@ -2421,8 +2440,7 @@
                             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
                                 
                                 <div className="mb-3">
-                                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1">Descripción de la Prenda (Autocompleta)</label>
-                                    {/* 🧠 INPUT CON PREDICTIVO CONECTADO AL DATALIST */}
+                                    <label className="text-[10px] font-bold text-slate-400 uppercase ml-1 block mb-1">Descripción de la Prenda</label>
                                     <input list="dynamic-descriptions" value={detail} onChange={e=>setDetail(e.target.value)} placeholder="Ej: Blusa roja con botones" className="w-full p-4 bg-slate-50 border border-indigo-100 rounded-xl font-bold text-sm outline-none focus:border-indigo-400 shadow-inner" />
                                 </div>
                                 
@@ -2459,7 +2477,6 @@
                     {viewTab === 'stock' && (
                         <div className="space-y-4 animate-in fade-in">
                             
-                            {/* 💰 NUEVAS TARJETAS DE VALOR DE STOCK */}
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="bg-slate-800 text-white p-4 rounded-2xl shadow-sm text-center">
                                     <div className="text-[9px] font-bold text-slate-400 uppercase tracking-widest flex justify-center items-center gap-1"><Icon.Box /> Costo Base Total</div>
