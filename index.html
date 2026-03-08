@@ -2119,6 +2119,7 @@
 
         const [editItem, setEditItem] = useState(null);
         const [editDetail, setEditDetail] = useState("");
+        const [editColor, setEditColor] = useState(""); 
         const [editSize, setEditSize] = useState(""); 
         const [editMainCat, setEditMainCat] = useState(""); 
         const [editSubCat, setEditSubCat] = useState("");   
@@ -2127,11 +2128,14 @@
         const [editPvp, setEditPvp] = useState("");
         const [itemToDelete, setItemToDelete] = useState(null); 
         
-        const [stockViewMode, setStockViewMode] = useState('table'); 
+        const [stockViewMode, setStockViewMode] = useState('tree'); 
         const [stockSearch, setStockSearch] = useState("");
         const [saveMsg, setSaveMsg] = useState("");
 
         const [sortConfig, setSortConfig] = useState({ key: 'code', direction: 'asc' });
+        const [expandedCats, setExpandedCats] = useState({}); 
+        const [expandedModels, setExpandedModels] = useState({});
+
         const [showColsMenu, setShowColsMenu] = useState(false);
         const [cols, setCols] = useState({ codigo: true, detalle: true, talla: true, categoria: true, subcategoria: false, paca: true, costo: false, pvp: true, fecha: false, acciones: true });
 
@@ -2145,7 +2149,7 @@
         }, [logic.inventory]);
 
         const dynamicDescriptions = useMemo(() => {
-            const fromDb = logic.inventory.map(i => i.detail.trim());
+            const fromDb = logic.inventory.map(i => i.detail.trim().split(' - ')[0]);
             return [...new Set(fromDb)].filter(d => d).sort();
         }, [logic.inventory]);
 
@@ -2172,7 +2176,6 @@
             
             if (words.length > 0 && words[0] !== "") {
                 let firstWord = words[0].toUpperCase();
-                
                 if (firstWord === "CAMISETA") firstWord = "CAMISETAS";
                 else if (firstWord === "CAMISA") firstWord = "CAMISAS";
                 else if (firstWord === "PANTALON" || firstWord === "PANTALÓN") firstWord = "PANTALONES";
@@ -2185,9 +2188,7 @@
                 
                 detectedCat = firstWord;
                 setMainCat(detectedCat); 
-            } else {
-                setMainCat("");
-            }
+            } else { setMainCat(""); }
 
             const texto = detail.toLowerCase();
             let newSubCat = subCat;
@@ -2196,9 +2197,7 @@
             else if (texto.includes("mujer") || texto.includes("dama")) newSubCat = "M"; 
             else if (texto.includes("hombre") || texto.includes("caballero")) newSubCat = "H";
             else if (texto.includes("unisex")) newSubCat = "U";
-            else {
-                if (["BLUSAS", "FALDAS", "VESTIDOS"].includes(detectedCat)) newSubCat = "M";
-            }
+            else { if (["BLUSAS", "FALDAS", "VESTIDOS"].includes(detectedCat)) newSubCat = "M"; }
             setSubCat(newSubCat);
 
             const dicColores = ["ROJO", "ROJA", "AZUL", "VERDE", "NEGRO", "NEGRA", "BLANCO", "BLANCA", "AMARILLO", "AMARILLA", "CAFE", "CAFÉ", "MARRON", "MARRÓN", "GRIS", "MORADO", "MORADA", "NARANJA", "ROSADO", "ROSA", "CELESTE", "VINO", "MOSTAZA", "BEIGE", "FUCSIA", "LILA"];
@@ -2207,7 +2206,6 @@
             for (const col of dicColores) {
                 if (new RegExp(`\\b${col}\\b`).test(upperDetail)) { detectedColor = col; break; }
             }
-            
             if (detectedColor) {
                 setSizeBatches(prev => {
                     const newB = [...prev];
@@ -2215,7 +2213,6 @@
                     return newB;
                 });
             }
-
         }, [detail]);
 
         const getCatPrefix = (catWord) => {
@@ -2239,6 +2236,23 @@
 
         const prefijo = `${getCatPrefix(mainCat)}-${subCat}`;
         const codigoAutoVisual = `${prefijo}-${String(nextGlobalNumber).padStart(3, '0')}`;
+
+        // 🎨 EL NUEVO PINTOR AUTOMÁTICO DE ETIQUETAS DE COLORES
+        const getColorBadgeStyle = (colorName) => {
+            const col = (colorName || "").toUpperCase();
+            if (col.includes("ROJ") || col.includes("VINO")) return "bg-red-100 text-red-700 border-red-200";
+            if (col.includes("AZUL") || col.includes("CELESTE")) return "bg-blue-100 text-blue-700 border-blue-200";
+            if (col.includes("VERD")) return "bg-green-100 text-green-700 border-green-200";
+            if (col.includes("AMARILL") || col.includes("MOSTAZA")) return "bg-yellow-100 text-yellow-700 border-yellow-200";
+            if (col.includes("NEGR")) return "bg-slate-800 text-slate-100 border-slate-900";
+            if (col.includes("BLANC")) return "bg-white text-slate-600 border-slate-300 shadow-sm";
+            if (col.includes("CAFE") || col.includes("CAFÉ") || col.includes("MARRON") || col.includes("MARRÓN") || col.includes("BEIGE")) return "bg-amber-100 text-amber-800 border-amber-200";
+            if (col.includes("GRIS")) return "bg-gray-200 text-gray-700 border-gray-300";
+            if (col.includes("MORAD") || col.includes("LILA")) return "bg-purple-100 text-purple-700 border-purple-200";
+            if (col.includes("NARANJA")) return "bg-orange-100 text-orange-700 border-orange-200";
+            if (col.includes("ROSAD") || col.includes("ROSA") || col.includes("FUCSIA")) return "bg-pink-100 text-pink-700 border-pink-200";
+            return "bg-slate-100 text-slate-600 border-slate-200"; // Por defecto
+        };
 
         const handleAddSizeBatch = () => setSizeBatches([...sizeBatches, { size: "", color: "", qty: 1 }]);
         const handleRemoveSizeBatch = (index) => setSizeBatches(sizeBatches.filter((_, i) => i !== index));
@@ -2265,20 +2279,20 @@
                 const colorFinal = (batch.color || "").trim().toUpperCase();
 
                 let finalPrendaDetail = detail.trim();
-                if (colorFinal && !finalPrendaDetail.toUpperCase().includes(colorFinal)) {
-                    finalPrendaDetail = `${finalPrendaDetail} - ${colorFinal}`;
+                if (colorFinal && finalPrendaDetail.toUpperCase().includes(colorFinal)) {
+                    const regex = new RegExp(`\\s*${colorFinal}\\s*`, "i");
+                    finalPrendaDetail = finalPrendaDetail.replace(regex, " ").trim();
                 }
+                if (colorFinal) { finalPrendaDetail = `${finalPrendaDetail} - ${colorFinal}`; }
 
                 for (let i = 0; i < cantidad; i++) {
                     let codigoFinalPrenda = "";
                     if (manualCode.trim() !== "") codigoFinalPrenda = totalToGenerate > 1 ? `${manualCode.toUpperCase()}-${offset + 1}` : manualCode.toUpperCase();
                     else codigoFinalPrenda = `${prefijo}-${String(nextGlobalNumber + offset).padStart(3, '0')}`;
-                    
                     logic.addInventoryItem(codigoFinalPrenda, finalPrendaDetail, tallaFinal, catFinal, subCat, costoFinal, manualPvp, nombrePaca, lotId, 0);
                     offset++;
                 }
             }
-            
             setSaveMsg(`✅ ¡${totalToGenerate} prendas guardadas con éxito!`);
             setTimeout(() => setSaveMsg(""), 3000);
             setDetail(""); setSizeBatches([{ size: "", color: "", qty: 1 }]); setManualCode(""); 
@@ -2287,9 +2301,16 @@
         const handleClearForm = () => { setDetail(""); setSizeBatches([{ size: "", color: "", qty: 1 }]); setManualCode(""); setManualPvp(""); setTargetMargin(""); setMainCat(""); };
 
         const openEditModal = (item) => {
-            setEditItem(item); setEditDetail(item.detail); setEditSize(item.size || "U"); setEditPvp(item.price);
-            setEditMainCat(catNombres[item.mainCat] || item.mainCat); setEditSubCat(item.subCat);
-            setEditLotId(item.lotId || "SUELTA"); setEditItemLotName(item.lotName || "SUELTA");
+            setEditItem(item);
+            const parts = (item.detail || "").split(' - ');
+            setEditDetail(parts[0].trim());
+            setEditColor(parts.length > 1 ? parts.slice(1).join(' - ').trim() : "");
+            setEditSize(item.size || "U"); 
+            setEditPvp(item.price);
+            setEditMainCat(catNombres[item.mainCat] || item.mainCat); 
+            setEditSubCat(item.subCat);
+            setEditLotId(item.lotId || "SUELTA"); 
+            setEditItemLotName(item.lotName || "SUELTA");
         };
 
         const saveEditItem = async () => {
@@ -2299,14 +2320,16 @@
             
             const parts = editItem.code.split('-');
             const oldPrefix = parts.slice(0, -1).join('-');
-            
             if (oldPrefix !== newPrefix && parts.length >= 2) {
                 const globalNumber = parts[parts.length - 1];
                 newCode = `${newPrefix}-${globalNumber}`;
             }
+
+            const finalColorStr = editColor.trim().toUpperCase();
+            const finalDetailToSave = finalColorStr ? `${editDetail.trim()} - ${finalColorStr}` : editDetail.trim();
             
             await logic.updateInventoryItem(editItem.fireId, { 
-                detail: editDetail, size: editSize || "U", price: parseFloat(editPvp), 
+                detail: finalDetailToSave, size: editSize || "U", price: parseFloat(editPvp), 
                 mainCat: catFinal, subCat: editSubCat, code: newCode,
                 lotId: editLotId === "SUELTA" ? null : editLotId, lotName: editItemLotName
             });
@@ -2339,9 +2362,7 @@
             let sortableItems = [...filteredInventoryList];
             if (sortConfig.key) {
                 sortableItems.sort((a, b) => {
-                    let aValue = a[sortConfig.key] || '';
-                    let bValue = b[sortConfig.key] || '';
-
+                    let aValue = a[sortConfig.key] || ''; let bValue = b[sortConfig.key] || '';
                     if (sortConfig.key === 'code') {
                         const numA = parseInt(String(aValue).split('-').pop()) || 0;
                         const numB = parseInt(String(bValue).split('-').pop()) || 0;
@@ -2349,17 +2370,13 @@
                         if (numA > numB) return sortConfig.direction === 'asc' ? 1 : -1;
                         return 0;
                     }
-
                     if (sortConfig.key === 'cost' || sortConfig.key === 'price') {
-                        aValue = parseFloat(aValue) || 0;
-                        bValue = parseFloat(bValue) || 0;
+                        aValue = parseFloat(aValue) || 0; bValue = parseFloat(bValue) || 0;
                         if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
                         if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
                         return 0;
                     }
-
-                    const strA = String(aValue).toLowerCase();
-                    const strB = String(bValue).toLowerCase();
+                    const strA = String(aValue).toLowerCase(); const strB = String(bValue).toLowerCase();
                     if (strA < strB) return sortConfig.direction === 'asc' ? -1 : 1;
                     if (strA > strB) return sortConfig.direction === 'asc' ? 1 : -1;
                     return 0;
@@ -2367,6 +2384,31 @@
             }
             return sortableItems;
         }, [filteredInventoryList, sortConfig]);
+
+        const treeData = useMemo(() => {
+            const groups = {};
+            sortedInventoryList.forEach(item => {
+                const cat = catNombres[item.mainCat] || item.mainCat || 'OTROS';
+                const detailParts = (item.detail || "Sin descripción").split(' - ');
+                const baseDesc = detailParts[0].trim();
+                const colorExtracted = detailParts.length > 1 ? detailParts[1].trim() : '';
+
+                if (!groups[cat]) groups[cat] = { total: 0, models: {} };
+                groups[cat].total += 1;
+
+                if (!groups[cat].models[baseDesc]) { groups[cat].models[baseDesc] = { total: 0, items: [], sizes: {}, colors: {} }; }
+                groups[cat].models[baseDesc].total += 1;
+                groups[cat].models[baseDesc].items.push({...item, extractedColor: colorExtracted});
+
+                const sz = item.size || 'U';
+                groups[cat].models[baseDesc].sizes[sz] = (groups[cat].models[baseDesc].sizes[sz] || 0) + 1;
+                if (colorExtracted) { groups[cat].models[baseDesc].colors[colorExtracted] = (groups[cat].models[baseDesc].colors[colorExtracted] || 0) + 1; }
+            });
+            return groups;
+        }, [sortedInventoryList]);
+
+        const toggleCat = (cat) => setExpandedCats(prev => ({...prev, [cat]: !prev[cat]}));
+        const toggleModel = (modelKey) => setExpandedModels(prev => ({...prev, [modelKey]: !prev[modelKey]}));
 
         const handleExportInventory = () => {
             if(sortedInventoryList.length === 0) return alert("El inventario está vacío.");
@@ -2424,11 +2466,15 @@
                             
                             <div className="flex gap-2">
                                 <div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Categoría</label><input list="dynamic-categories" value={editMainCat} onChange={e=>setEditMainCat(e.target.value.toUpperCase())} className="w-full p-3 bg-indigo-50 border border-indigo-100 rounded-xl font-bold mt-1 text-indigo-800 outline-none text-xs" /></div>
-                                <div className="w-24"><label className="text-[10px] font-bold text-slate-400 uppercase">SubCat</label><select value={editSubCat} onChange={e=>setEditSubCat(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold mt-1 outline-none text-xs"><option value="H">Hombre</option><option value="M">Mujer</option><option value="N">Niño</option><option value="NA">Niña</option><option value="U">Unisex</option></select></div>
+                                <div className="w-24"><label className="text-[10px] font-bold text-slate-400 uppercase">SubCat</label><select value={editSubCat} onChange={e=>setSubCat(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold mt-1 outline-none text-xs"><option value="H">Hombre</option><option value="M">Mujer</option><option value="N">Niño</option><option value="NA">Niña</option><option value="U">Unisex</option></select></div>
                                 <div className="flex-[1.5]"><label className="text-[10px] font-bold text-slate-400 uppercase">Asignar a Paca</label><select value={editLotId} onChange={e=>{ const val = e.target.value; setEditLotId(val); if(val==="SUELTA") setEditItemLotName("SUELTA"); else { const l = logic.lots.find(x=>x.fireId===val); if(l) setEditItemLotName(l.name); } }} className="w-full p-3 bg-orange-50 border border-orange-200 text-orange-800 rounded-xl font-bold mt-1 outline-none text-xs"><option value="SUELTA">- SUELTA -</option>{logic.lots.map(l => <option key={l.fireId} value={l.fireId}>{l.name}</option>)}</select></div>
                             </div>
 
-                            <div><label className="text-[10px] font-bold text-slate-400 uppercase">Detalle / Color</label><input list="dynamic-descriptions" value={editDetail} onChange={e=>setEditDetail(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold mt-1 outline-none focus:border-indigo-400 text-sm" /></div>
+                            <div className="flex gap-2">
+                                <div className="flex-[2]"><label className="text-[10px] font-bold text-slate-400 uppercase">Descripción Base</label><input list="dynamic-descriptions" value={editDetail} onChange={e=>setEditDetail(e.target.value)} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold mt-1 outline-none focus:border-indigo-400 text-sm" /></div>
+                                <div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Color</label><input value={editColor} onChange={e=>setEditColor(e.target.value.toUpperCase())} placeholder="(Opcional)" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold mt-1 outline-none focus:border-indigo-400 text-sm text-center" /></div>
+                            </div>
+                            
                             <div className="flex gap-2"><div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">Talla</label><input value={editSize} onChange={e=>setEditSize(e.target.value.toUpperCase())} className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl font-bold mt-1 text-center outline-none" /></div><div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase">PVP</label><input type="number" value={editPvp} onChange={e=>setEditPvp(e.target.value)} className="w-full p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 rounded-xl font-black mt-1 outline-none" /></div></div>
                             <div className="flex gap-2 pt-2"><button onClick={() => setEditItem(null)} className="flex-1 py-3 bg-slate-100 text-slate-500 font-bold rounded-xl">Cancelar</button><button onClick={saveEditItem} className="flex-[2] py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg">Guardar Cambios</button></div>
                         </div>
@@ -2518,8 +2564,6 @@
 
                                 <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 mb-4 shadow-inner">
                                     <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1 mb-2 block">Tallas, Colores y Cantidades</label>
-                                    
-                                    {/* 🧠 VISOR MÁGICO DE CÓDIGOS GENERADOS */}
                                     <div className="space-y-2 mb-2">
                                         {(() => {
                                             let currentOffset = 0;
@@ -2562,7 +2606,6 @@
                                             });
                                         })()}
                                     </div>
-                                    
                                     <button onClick={handleAddSizeBatch} className="w-full py-2 border-2 border-dashed border-indigo-300 text-indigo-600 font-bold rounded-xl text-xs hover:bg-indigo-100 transition-colors">+ Añadir otra fila</button>
                                 </div>
 
@@ -2600,7 +2643,7 @@
                             <div className="flex flex-wrap gap-2">
                                 <button onClick={handleExportInventory} className="flex-1 min-w-[120px] py-3 bg-emerald-600 text-white font-black text-[10px] uppercase rounded-xl shadow-sm flex justify-center items-center gap-2 active:scale-95 transition-all"><Icon.Download /> Excel</button>
                                 
-                                {stockViewMode === 'table' && (
+                                {(stockViewMode === 'table' || stockViewMode === 'tree') && (
                                     <div className="relative">
                                         <button onClick={() => setShowColsMenu(!showColsMenu)} className={`py-3 px-4 rounded-xl font-black text-[10px] uppercase flex items-center gap-2 border transition-colors ${showColsMenu ? 'bg-indigo-50 border-indigo-200 text-indigo-700' : 'bg-white border-slate-200 text-slate-600'}`}>⚙️ Columnas</button>
                                         {showColsMenu && (
@@ -2618,13 +2661,102 @@
                                     </div>
                                 )}
 
-                                <div className="flex bg-slate-200 p-1 rounded-xl shadow-inner">
-                                    <button onClick={() => setStockViewMode('list')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${stockViewMode === 'list' ? 'bg-white shadow text-slate-800' : 'text-slate-500'}`}>Tarjetas</button>
-                                    <button onClick={() => setStockViewMode('table')} className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${stockViewMode === 'table' ? 'bg-indigo-600 shadow text-white' : 'text-slate-500'}`}>Tabla</button>
+                                <div className="flex bg-slate-200 p-1 rounded-xl shadow-inner w-full md:w-auto">
+                                    <button onClick={() => setStockViewMode('list')} className={`flex-1 md:flex-none px-3 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${stockViewMode === 'list' ? 'bg-white shadow text-slate-800' : 'text-slate-500 hover:bg-slate-300'}`}>Tarjetas</button>
+                                    <button onClick={() => setStockViewMode('table')} className={`flex-1 md:flex-none px-3 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${stockViewMode === 'table' ? 'bg-indigo-600 shadow text-white' : 'text-slate-500 hover:bg-slate-300'}`}>Tabla</button>
+                                    <button onClick={() => setStockViewMode('tree')} className={`flex-1 md:flex-none px-3 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${stockViewMode === 'tree' ? 'bg-emerald-600 shadow text-white' : 'text-slate-500 hover:bg-slate-300'}`}>Árbol</button>
                                 </div>
                             </div>
 
-                            {stockViewMode === 'list' ? (
+                            {/* 🌲 MODO ÁRBOL ESTILO iOS / CON PINTOR DE COLORES */}
+                            {stockViewMode === 'tree' ? (
+                                <div className="space-y-3">
+                                    {Object.entries(treeData).map(([catName, catData]) => (
+                                        <div key={catName} className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden">
+                                            <div className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-50/80 transition-colors" onClick={() => toggleCat(catName)}>
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${expandedCats[catName] ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-100 text-slate-500'}`}>
+                                                        {expandedCats[catName] ? <span className="text-sm font-bold">▼</span> : <span className="text-sm font-bold">▶</span>}
+                                                    </div>
+                                                    <h3 className="font-black text-slate-800 text-lg tracking-tight">{catName}</h3>
+                                                </div>
+                                                <div className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full tracking-wider">
+                                                    {catData.total} PRENDAS
+                                                </div>
+                                            </div>
+
+                                            {expandedCats[catName] && (
+                                                <div className="p-3 bg-slate-50/50 border-t border-slate-100">
+                                                    <div className="space-y-2">
+                                                        {Object.entries(catData.models).map(([modelName, modelData]) => {
+                                                            const modelKey = `${catName}_${modelName}`;
+                                                            return (
+                                                                <div key={modelKey} className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                                                                    
+                                                                    <div className="p-3 flex flex-col md:flex-row md:items-center justify-between cursor-pointer" onClick={() => toggleModel(modelKey)}>
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className={`text-xs ${expandedModels[modelKey] ? 'text-emerald-500' : 'text-slate-300'}`}>
+                                                                                {expandedModels[modelKey] ? '▼' : '▶'}
+                                                                            </div>
+                                                                            <div>
+                                                                                <h4 className="font-bold text-slate-700">{modelName}</h4>
+                                                                                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                                                                                    {Object.entries(modelData.sizes).map(([sz, qty]) => (
+                                                                                        <span key={`sz-${sz}`} className="text-[9px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200">
+                                                                                            Talla {sz} <span className="text-indigo-500 ml-0.5">{qty}</span>
+                                                                                        </span>
+                                                                                    ))}
+                                                                                    {Object.entries(modelData.colors).map(([col, qty]) => (
+                                                                                        <span key={`col-${col}`} className={`text-[9px] font-bold px-2 py-0.5 rounded-md border ${getColorBadgeStyle(col)}`}>
+                                                                                            {col} <span className="ml-0.5 opacity-80">{qty}</span>
+                                                                                        </span>
+                                                                                    ))}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded-lg mt-2 md:mt-0 w-fit border border-slate-200">
+                                                                            {modelData.total} unds
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {expandedModels[modelKey] && (
+                                                                        <div className="border-t border-slate-100 bg-slate-50/50 p-2 space-y-1">
+                                                                            {modelData.items.map(item => (
+                                                                                <div key={item.code} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-slate-100 hover:border-indigo-200 hover:shadow-sm transition-all group">
+                                                                                    <div className="flex items-center gap-3">
+                                                                                        {/* 🔥 CÓDIGO CON ANCHO FIJO PARA QUE NO HAGA SALTO DE LÍNEA */}
+                                                                                        <span className="font-bold text-indigo-600 text-xs w-24 whitespace-nowrap shrink-0">{item.code}</span>
+                                                                                        <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-1 rounded-md">{item.size || 'U'}</span>
+                                                                                        {item.extractedColor && (
+                                                                                            <span className={`text-[10px] font-bold px-2 py-1 rounded-md border ${getColorBadgeStyle(item.extractedColor)}`}>
+                                                                                                {item.extractedColor}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-4">
+                                                                                        <span className="font-black text-emerald-600 text-sm">${(item.price||0).toFixed(2)}</span>
+                                                                                        
+                                                                                        <div className="flex gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                                                                                            <button onClick={(e) => { e.stopPropagation(); openEditModal(item); }} className="w-7 h-7 flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-600 hover:text-white rounded-md transition-colors"><Icon.Edit /></button>
+                                                                                            <button onClick={(e) => { e.stopPropagation(); setItemToDelete(item); }} className="w-7 h-7 flex items-center justify-center text-red-500 bg-red-50 hover:bg-red-600 hover:text-white rounded-md transition-colors"><Icon.Trash /></button>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                    {Object.keys(treeData).length === 0 && <div className="p-10 text-center text-slate-400 font-bold bg-white rounded-3xl border border-dashed border-slate-300">No hay coincidencias en el inventario.</div>}
+                                </div>
+
+                            ) : stockViewMode === 'list' ? (
                                 <>
                                     <div className="grid grid-cols-2 gap-3">{Object.entries(stockStats).map(([cat, qty]) => (<div key={cat} className="bg-white p-4 rounded-2xl border text-center shadow-sm"><div className="text-2xl font-black text-indigo-600">{qty}</div><div className="text-[10px] font-bold text-slate-400 uppercase">{cat}</div></div>))}</div>
                                     <div className="bg-white rounded-2xl border overflow-hidden">
@@ -2691,6 +2823,7 @@
             </div>
         );
     };
+
 
 
 
