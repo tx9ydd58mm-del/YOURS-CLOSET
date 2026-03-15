@@ -379,13 +379,11 @@
         const addPayment = (clientId, amount, detail, date, account = "pichincha") => window.fs.addDoc(window.fs.collection(window.db, 'payments'), { id: Date.now() + Math.random(), clientId, amount: parseFloat(amount), date, detail, account });
         const addExpense = (detail, amount, dateStr, category = "negocio", account = "pichincha") => window.fs.addDoc(window.fs.collection(window.db, 'expenses'), { id: Date.now(), detail, amount: parseFloat(amount), date: safeISO(dateStr), category, account });
         
-        // 🧠 DESCUENTA EL STOCK AL VENDER
         const addSale = async (clientId, item, value, date, owner = 'me', inventoryId = null) => { 
             await window.fs.addDoc(window.fs.collection(window.db, 'sales'), { id: Date.now() + Math.random(), clientId, item, value: parseFloat(value), date, owner, partnerSettled: false, inventoryId });
             if (inventoryId) { try { await window.fs.updateDoc(window.fs.doc(window.db, 'inventory', inventoryId), { stock: 0 }); } catch(e){} }
         };
         
-        // 🧠 DESCUENTA EL STOCK AL VENDER (POR LOTE)
         const addBatchSales = async (clientId, item, value, date, quantity, owner = 'me', inventoryId = null) => {
             const timestamp = Date.now();
             for(let i=0; i < quantity; i++) {
@@ -408,21 +406,27 @@
         const updateClientLocal = (clientId, updates) => { const c = clients.find(cl => cl.id === clientId); if (c && c.fireId) window.fs.updateDoc(window.fs.doc(window.db, "clients", c.fireId), updates); };
         const deleteClient = async (clientId) => { const c = clients.find(cl => cl.id === clientId); if(c && c.fireId) await window.fs.deleteDoc(window.fs.doc(window.db, "clients", c.fireId)); };
         
-        // 🧠 SI BORRAS LA VENTA DEL CLIENTE (PAPELERA), LA PRENDA VUELVE A ESTAR DISPONIBLE EN INVENTARIO
+        // 🧠 PLAN B: SI NO TIENE EL ID, EXTRAE EL CÓDIGO [XXX-000] DEL TEXTO Y RESTAURA EL STOCK A 1
         const deleteSale = async (itemOrId) => { 
             try {
                 const db = window.db;
                 let targetFireId = typeof itemOrId === 'string' ? itemOrId : (itemOrId.fireId || null);
                 let invIdToRestore = typeof itemOrId === 'object' ? itemOrId.inventoryId : null;
 
+                if (!invIdToRestore && typeof itemOrId === 'object' && itemOrId.item) {
+                    const match = itemOrId.item.match(/^\[(.*?)\]/);
+                    if (match && match[1]) {
+                        const foundInv = inventory.find(i => i.code === match[1]);
+                        if (foundInv) invIdToRestore = foundInv.fireId;
+                    }
+                }
+
                 if (!targetFireId && typeof itemOrId === 'object' && itemOrId.id) {
                     const q = window.fs.query(window.fs.collection(db, "sales"), window.fs.where("id", "==", itemOrId.id));
                     const snapshot = await window.fs.getDocs(q);
-                    if (!snapshot.empty) { 
-                        targetFireId = snapshot.docs[0].id; 
-                        invIdToRestore = snapshot.docs[0].data().inventoryId; 
-                    }
+                    if (!snapshot.empty) { targetFireId = snapshot.docs[0].id; }
                 }
+
                 if (targetFireId) {
                     await window.fs.updateDoc(window.fs.doc(db, "sales", targetFireId), { deletedAt: new Date().toISOString() });
                     if (invIdToRestore) { try { await window.fs.updateDoc(window.fs.doc(db, "inventory", invIdToRestore), { stock: 1 }); } catch(e){} }
@@ -432,12 +436,20 @@
             } catch (error) { return false; }
         };
 
-        // 🧠 SI LA RESCATAS DE LA PAPELERA, LA VUELVE A DESCONTAR DEL INVENTARIO
+        // 🧠 PLAN B: SI RESTAURAS DE PAPELERA, EXTRAE EL CÓDIGO Y VUELVE A DESCONTAR (STOCK A 0)
         const restoreSale = async (itemOrId) => {
             try {
                 const db = window.db;
                 const targetFireId = typeof itemOrId === 'string' ? itemOrId : itemOrId.fireId;
-                const invIdToDeduct = typeof itemOrId === 'object' ? itemOrId.inventoryId : null;
+                let invIdToDeduct = typeof itemOrId === 'object' ? itemOrId.inventoryId : null;
+
+                if (!invIdToDeduct && typeof itemOrId === 'object' && itemOrId.item) {
+                    const match = itemOrId.item.match(/^\[(.*?)\]/);
+                    if (match && match[1]) {
+                        const foundInv = inventory.find(i => i.code === match[1]);
+                        if (foundInv) invIdToDeduct = foundInv.fireId;
+                    }
+                }
 
                 if(targetFireId) {
                     await window.fs.updateDoc(window.fs.doc(db, "sales", targetFireId), { deletedAt: null });
