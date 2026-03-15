@@ -333,7 +333,6 @@
     // --- LÓGICA DE NEGOCIO (V10 - PROTOCOLO FRANCOTIRADOR / ID ÚNICO) ---
 
 
-    // --- LÓGICA DE NEGOCIO (V14 - PAPELERA CON DESTRUCCIÓN DEFINITIVA) ---
     const useBusinessLogic = (user) => {
         const [clients, setClients] = useState([]);
         const [allSalesRaw, setAllSalesRaw] = useState([]); 
@@ -358,7 +357,7 @@
             if (!name) return;
             const cleanName = name.trim().toUpperCase();
             if (partners.includes(cleanName)) return;
-            try { await window.fs.addDoc(window.fs.collection(window.db, 'partners'), { name: cleanName, createdAt: new Date().toISOString() }); } catch (e) { alert("Error de conexión"); }
+            try { await window.fs.addDoc(window.fs.collection(window.db, 'partners'), { name: cleanName, createdAt: new Date().toISOString() }); } catch (e) {}
         };
 
         const sales = useMemo(() => allSalesRaw.filter(s => !s.deletedAt), [allSalesRaw]);
@@ -379,11 +378,20 @@
 
         const addPayment = (clientId, amount, detail, date, account = "pichincha") => window.fs.addDoc(window.fs.collection(window.db, 'payments'), { id: Date.now() + Math.random(), clientId, amount: parseFloat(amount), date, detail, account });
         const addExpense = (detail, amount, dateStr, category = "negocio", account = "pichincha") => window.fs.addDoc(window.fs.collection(window.db, 'expenses'), { id: Date.now(), detail, amount: parseFloat(amount), date: safeISO(dateStr), category, account });
-        const addSale = (clientId, item, value, date, owner = 'me') => window.fs.addDoc(window.fs.collection(window.db, 'sales'), { id: Date.now() + Math.random(), clientId, item, value: parseFloat(value), date, owner, partnerSettled: false });
         
-        const addBatchSales = (clientId, item, value, date, quantity, owner = 'me') => {
+        // 🧠 DESCUENTA EL STOCK AL VENDER
+        const addSale = async (clientId, item, value, date, owner = 'me', inventoryId = null) => { 
+            await window.fs.addDoc(window.fs.collection(window.db, 'sales'), { id: Date.now() + Math.random(), clientId, item, value: parseFloat(value), date, owner, partnerSettled: false, inventoryId });
+            if (inventoryId) { try { await window.fs.updateDoc(window.fs.doc(window.db, 'inventory', inventoryId), { stock: 0 }); } catch(e){} }
+        };
+        
+        // 🧠 DESCUENTA EL STOCK AL VENDER (POR LOTE)
+        const addBatchSales = async (clientId, item, value, date, quantity, owner = 'me', inventoryId = null) => {
             const timestamp = Date.now();
-            for(let i=0; i < quantity; i++) window.fs.addDoc(window.fs.collection(window.db, 'sales'), { id: timestamp + i + Math.random(), clientId, item, value: parseFloat(value), date, owner, partnerSettled: false });
+            for(let i=0; i < quantity; i++) {
+                await window.fs.addDoc(window.fs.collection(window.db, 'sales'), { id: timestamp + i + Math.random(), clientId, item, value: parseFloat(value), date, owner, partnerSettled: false, inventoryId });
+            }
+            if (inventoryId) { try { await window.fs.updateDoc(window.fs.doc(window.db, 'inventory', inventoryId), { stock: 0 }); } catch(e){} }
         };
 
         const registerShipment = (clientId, guide, company, date) => window.fs.addDoc(window.fs.collection(window.db, 'shipments'), { id: Date.now() + 500, clientId, guide, company, date });
@@ -400,20 +408,47 @@
         const updateClientLocal = (clientId, updates) => { const c = clients.find(cl => cl.id === clientId); if (c && c.fireId) window.fs.updateDoc(window.fs.doc(window.db, "clients", c.fireId), updates); };
         const deleteClient = async (clientId) => { const c = clients.find(cl => cl.id === clientId); if(c && c.fireId) await window.fs.deleteDoc(window.fs.doc(window.db, "clients", c.fireId)); };
         
+        // 🧠 SI BORRAS LA VENTA DEL CLIENTE (PAPELERA), LA PRENDA VUELVE A ESTAR DISPONIBLE EN INVENTARIO
         const deleteSale = async (itemOrId) => { 
             try {
-                const db = window.db; let targetFireId = typeof itemOrId === 'string' ? itemOrId : (itemOrId.fireId || null);
+                const db = window.db;
+                let targetFireId = typeof itemOrId === 'string' ? itemOrId : (itemOrId.fireId || null);
+                let invIdToRestore = typeof itemOrId === 'object' ? itemOrId.inventoryId : null;
+
                 if (!targetFireId && typeof itemOrId === 'object' && itemOrId.id) {
                     const q = window.fs.query(window.fs.collection(db, "sales"), window.fs.where("id", "==", itemOrId.id));
-                    const snapshot = await window.fs.getDocs(q); if (!snapshot.empty) targetFireId = snapshot.docs[0].id;
+                    const snapshot = await window.fs.getDocs(q);
+                    if (!snapshot.empty) { 
+                        targetFireId = snapshot.docs[0].id; 
+                        invIdToRestore = snapshot.docs[0].data().inventoryId; 
+                    }
                 }
-                if (targetFireId) { await window.fs.updateDoc(window.fs.doc(db, "sales", targetFireId), { deletedAt: new Date().toISOString() }); return true; }
+                if (targetFireId) {
+                    await window.fs.updateDoc(window.fs.doc(db, "sales", targetFireId), { deletedAt: new Date().toISOString() });
+                    if (invIdToRestore) { try { await window.fs.updateDoc(window.fs.doc(db, "inventory", invIdToRestore), { stock: 1 }); } catch(e){} }
+                    return true;
+                }
                 return false;
             } catch (error) { return false; }
         };
 
-        const restoreSale = async (itemOrId) => { try { const db = window.db; const targetFireId = typeof itemOrId === 'string' ? itemOrId : itemOrId.fireId; if(targetFireId) await window.fs.updateDoc(window.fs.doc(db, "sales", targetFireId), { deletedAt: null }); } catch(e) {} };
-        const destroySale = async (itemOrId) => { try { const db = window.db; const targetFireId = typeof itemOrId === 'string' ? itemOrId : itemOrId.fireId; if(targetFireId) await window.fs.deleteDoc(window.fs.doc(db, "sales", targetFireId)); } catch(e) {} };
+        // 🧠 SI LA RESCATAS DE LA PAPELERA, LA VUELVE A DESCONTAR DEL INVENTARIO
+        const restoreSale = async (itemOrId) => {
+            try {
+                const db = window.db;
+                const targetFireId = typeof itemOrId === 'string' ? itemOrId : itemOrId.fireId;
+                const invIdToDeduct = typeof itemOrId === 'object' ? itemOrId.inventoryId : null;
+
+                if(targetFireId) {
+                    await window.fs.updateDoc(window.fs.doc(db, "sales", targetFireId), { deletedAt: null });
+                    if (invIdToDeduct) { try { await window.fs.updateDoc(window.fs.doc(db, "inventory", invIdToDeduct), { stock: 0 }); } catch(e){} }
+                }
+            } catch(e) {}
+        };
+
+        const destroySale = async (itemOrId) => {
+            try { const db = window.db; const targetFireId = typeof itemOrId === 'string' ? itemOrId : itemOrId.fireId; if(targetFireId) await window.fs.deleteDoc(window.fs.doc(db, "sales", targetFireId)); } catch(e) {}
+        };
 
         const getClientCycle = (clientId) => {
             const clientShipments = shipments.filter(s => s.clientId === clientId).sort((a, b) => new Date(safeISO(b.date)) - new Date(safeISO(a.date)));
@@ -465,7 +500,6 @@
             try { await window.fs.updateDoc(window.fs.doc(window.db, 'lots', fireId), { status: currentStatus === 'open' ? 'closed' : 'open' }); } catch(e) {}
         };
 
-        // AQUI ESTÁ LA MAGIA: addInventoryItem AHORA RECIBE 'size'
         const addInventoryItem = async (code, detail, size, mainCat, subCat, cost, price, lotName, lotId, discount = 0) => {
             try { await window.fs.addDoc(window.fs.collection(window.db, 'inventory'), { code, detail, size: size || "U", mainCat, subCat, cost: parseFloat(cost), price: parseFloat(price), lotName: lotName || "SUELTA", lotId: lotId || null, discount: parseFloat(discount), stock: 1, dateAdded: new Date().toISOString() }); } catch (error) { alert("🛑 ERROR: " + error.message); }
         };
@@ -480,7 +514,6 @@
             setClients: updateClientLocal, getClientCycle, getClientStatus, registerClient, addSale, addBatchSales, addPayment, addExpense, registerShipment, deleteClient, deleteSale, restoreSale, destroySale 
         };
     };
-
 
 
     // --- COMPONENTES UI ---
@@ -1323,132 +1356,195 @@
     // --- LIVE VIEW MULTI-SOCIA ---
     // --- LIVE VIEW 7.0 (CORREGIDO: MULTI-SOCIA SIN ERRORES) ---
     // --- LIVE VIEW 7.2 (CORREGIDO: SINTAXIS PERFECTA) ---
-    const LiveView = ({ logic }) => {
+       const LiveView = ({ logic }) => {
         const [search, setSearch] = useState(""); 
         const [found, setFound] = useState(null); 
+        const [item, setItem] = useState(""); 
+        const [price, setPrice] = useState(""); 
+        const [qty, setQty] = useState(1); 
+        
         const [currentOwner, setCurrentOwner] = useState('me'); 
         const [showNewPartner, setShowNewPartner] = useState(false);
         const [newPartnerName, setNewPartnerName] = useState("");
+        
         const [cart, setCart] = useState([]); 
         const [msg, setMsg] = useState(null); 
         const [suggestions, setSuggestions] = useState([]); 
         const [saleDate, setSaleDate] = useState(getToday());
-        
-        const [itemSearch, setItemSearch] = useState("");
-        const [selectedItem, setSelectedItem] = useState(null);
-        const [discountPct, setDiscountPct] = useState("");
+
+        // 🧠 ESTADOS PARA LA BÚSQUEDA MÁGICA EN BODEGA
+        const [invSuggestions, setInvSuggestions] = useState([]);
+        const [selectedInvItem, setSelectedInvItem] = useState(null);
+
+        const ITEMS_COMMON = [ "Prenda", "Combo", "Blusa", "Pantalón", "Vestido", "Camiseta", "Falda", "Short", "Chaqueta"]; 
+        const QTY_OPTIONS = [1, 2, 3, 4, 5, 10]; 
+        const PRICE_OPTIONS = ["0.25", "0.50", "0.75", "1.00", "1.25", "1.50", "1.75", "2.00", "3.00", "5.00"];
 
         useEffect(() => {
             if (search.length > 0) { const matches = logic.clients.filter(c => c.id.toLowerCase().startsWith(search.toLowerCase()) || c.name.toLowerCase().includes(search.toLowerCase())).slice(0, 3); setSuggestions(matches); } else { setSuggestions([]); }
             const exactMatch = logic.clients.find(c => c.id.toLowerCase() === search.toLowerCase()); setFound(exactMatch || null);
         }, [search, logic.clients]);
 
+        // 🧠 BUSCADOR DE BODEGA ESTRICTO (Solo muestra si Stock > 0)
+        useEffect(() => {
+            if (!logic.inventory) return;
+            if (item.length > 1 && !selectedInvItem) {
+                // AQUÍ ESTÁ EL CANDADO: Si ya se vendió (stock 0), no existe para el vendedor
+                const activeInv = logic.inventory.filter(i => i.stock > 0);
+                const matches = activeInv.filter(i => 
+                    (i.code && i.code.toLowerCase().includes(item.toLowerCase())) || 
+                    (i.detail && i.detail.toLowerCase().includes(item.toLowerCase()))
+                ).slice(0, 5);
+                setInvSuggestions(matches);
+            } else {
+                setInvSuggestions([]);
+            }
+        }, [item, logic.inventory, selectedInvItem]);
+
         const selectSuggestion = (client) => { setSearch(client.id); setFound(client); setSuggestions([]); setCart([]); };
-        const handleAddPartner = () => { if(newPartnerName) { logic.savePartner(newPartnerName); setCurrentOwner(newPartnerName.toUpperCase()); setShowNewPartner(false); setNewPartnerName(""); } };
 
-        const inventoryResults = useMemo(() => {
-            if (!itemSearch.trim()) return [];
-            const term = itemSearch.toLowerCase();
-            return logic.inventory.filter(i => i.stock > 0 && (i.code.toLowerCase().includes(term) || i.detail.toLowerCase().includes(term))).slice(0, 5);
-        }, [itemSearch, logic.inventory]);
+        // 🧠 AUTO-RELLENO DE DATOS DE BODEGA
+        const selectInvItem = (invItem) => {
+            setItem(`[${invItem.code}] ${invItem.detail}`);
+            setPrice(invItem.price.toString());
+            setQty(1);
+            setSelectedInvItem(invItem); // Guarda la identidad de la prenda en memoria
+            setInvSuggestions([]);
+        };
 
-        const handleSelectItem = (item) => { setSelectedItem(item); setItemSearch(""); setDiscountPct(""); };
+        const handleAddPartner = () => {
+            if(newPartnerName) { logic.savePartner(newPartnerName); setCurrentOwner(newPartnerName.toUpperCase()); setShowNewPartner(false); setNewPartnerName(""); }
+        };
 
         const addToCart = () => {
-            if (!selectedItem) return;
-            const desc = parseFloat(discountPct) || 0;
-            const finalPrice = selectedItem.price - (selectedItem.price * (desc / 100));
-            const newItem = { inventoryFireId: selectedItem.fireId, code: selectedItem.code, item: `${selectedItem.detail} (${selectedItem.code})`, price: finalPrice, qty: 1, id: Date.now(), owner: currentOwner, discountApplied: desc };
-            setCart([...cart, newItem]); setSelectedItem(null); setDiscountPct("");
+            if (!item || !price) return;
+            const newItem = { 
+                item, 
+                price: parseFloat(price), 
+                qty: parseInt(qty) || 1, 
+                id: Date.now(), 
+                owner: currentOwner,
+                inventoryId: selectedInvItem ? selectedInvItem.fireId : null 
+            };
+            setCart([...cart, newItem]);
+            setItem(""); setPrice(""); setQty(1); setSelectedInvItem(null);
         };
 
         const removeFromCart = (tempId) => { setCart(cart.filter(x => x.id !== tempId)); };
 
-        const handleFinalize = async (e) => {
+        const handleFinalize = (e) => {
             e.preventDefault(); 
-            if (!found || cart.length === 0) return;
-            const finalDate = smartDate(saleDate, logic.getClientCycle(found.id).lastShipmentDate); 
-            for (const line of cart) {
-                logic.addSale(found.id, line.item, line.price, finalDate, line.owner);
-                await logic.markInventoryAsSold(line.inventoryFireId);
+            if (!found) return;
+            const itemsToSave = [...cart];
+            if (item && price) { 
+                itemsToSave.push({ 
+                    item, price: parseFloat(price), qty: parseInt(qty) || 1, owner: currentOwner,
+                    inventoryId: selectedInvItem ? selectedInvItem.fireId : null 
+                }); 
             }
-            setMsg(`✅ Guardado: ${cart.length} prendas facturadas.`);
+            if (itemsToSave.length === 0) return alert("Nada que guardar.");
+            const finalDate = smartDate(saleDate, logic.getClientCycle(found.id).lastShipmentDate); 
+            
+            // 🧠 AL GUARDAR, SE DESCUENTA AUTOMÁTICAMENTE DE LA BODEGA
+            itemsToSave.forEach(line => { 
+                logic.addBatchSales(found.id, line.item, line.price, finalDate, line.qty, line.owner, line.inventoryId); 
+            });
+            
+            setMsg(`✅ Guardado: ${itemsToSave.reduce((s, i) => s + i.qty, 0)} prendas`);
             setTimeout(() => setMsg(null), 3000);
-            setSearch(""); setFound(null); setSuggestions([]); setCart([]); setSelectedItem(null);
+            setItem(""); setPrice(""); setSearch(""); setFound(null); setSuggestions([]); setQty(1); setCart([]); setSelectedInvItem(null);
         };
+
+        const totalCartItems = cart.reduce((acc, i) => acc + i.qty, 0);
+        const totalCartValue = cart.reduce((acc, i) => acc + (i.price * i.qty), 0);
 
         return (
             <div className="h-full flex flex-col bg-[#f0f2f5]">
                 <div className={`p-4 shadow-sm z-30 border-b border-slate-100 rounded-b-[30px] mb-2 transition-colors duration-300 ${currentOwner !== 'me' ? 'bg-purple-100' : 'bg-white'}`}>
                     <div className="flex justify-between items-center mb-4">
                         <div className="flex flex-col w-full pr-4">
-                            <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-indigo-600 tracking-tighter">YOUR'S CLOSET</h2>
+                            <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-indigo-600 tracking-tighter">VENTA LIVE</h2>
                             <div className="flex items-center gap-2 mt-2 overflow-x-auto no-scrollbar pb-1">
                                 <button onClick={()=>setCurrentOwner('me')} className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest border transition-all whitespace-nowrap ${currentOwner==='me'?'bg-slate-800 text-white border-slate-900':'bg-white text-slate-400 border-slate-200'}`}>MI ROPA</button>
-                                {logic.partners.map(p => ( <button key={p} onClick={()=>setCurrentOwner(p)} className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest border transition-all whitespace-nowrap ${currentOwner===p?'bg-purple-600 text-white border-purple-800':'bg-white text-purple-400 border-purple-100'}`}>{p}</button> ))}
+                                {logic.partners.map(p => (
+                                    <button key={p} onClick={()=>setCurrentOwner(p)} className={`px-3 py-1 rounded-full text-[10px] font-black tracking-widest border transition-all whitespace-nowrap ${currentOwner===p?'bg-purple-600 text-white border-purple-800':'bg-white text-purple-400 border-purple-100'}`}>{p}</button>
+                                ))}
                                 <button onClick={()=>setShowNewPartner(!showNewPartner)} className="w-6 h-6 shrink-0 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-lg shadow-sm active:scale-95">+</button>
                             </div>
-                            {showNewPartner && (<div className="mt-2 flex gap-2"><input value={newPartnerName} onChange={e=>setNewPartnerName(e.target.value)} placeholder="Nombre" className="w-full text-xs p-2 rounded-lg border border-emerald-200 bg-emerald-50 font-bold uppercase" autoFocus /><button onClick={handleAddPartner} className="bg-emerald-600 text-white px-3 rounded-lg font-bold text-xs">OK</button></div>)}
+                            {showNewPartner && (<div className="mt-2 flex gap-2 animate-in slide-in-from-top-2"><input value={newPartnerName} onChange={e=>setNewPartnerName(e.target.value)} placeholder="Nombre (Ej: Paola)" className="w-full text-xs p-2 rounded-lg border border-emerald-200 bg-emerald-50 font-bold uppercase" autoFocus /><button onClick={handleAddPartner} className="bg-emerald-600 text-white px-3 rounded-lg font-bold text-xs">OK</button></div>)}
                         </div>
                         <div className="flex flex-col items-end min-w-[80px]"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Fecha</label><input type="date" value={saleDate} onChange={e => setSaleDate(e.target.value)} className="bg-slate-50 text-slate-700 font-bold text-xs p-2 rounded-xl border border-slate-200 outline-none w-28 text-center shadow-sm" /></div>
                     </div>
+                    
                     <div className="relative">
-                        <input value={search} onChange={e => setSearch(e.target.value)} className="w-full text-center text-xl font-mono uppercase bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 focus:border-pink-500 outline-none transition-all font-bold text-slate-700 placeholder:text-slate-300 shadow-inner" placeholder="BUSCAR CLIENTE" autoFocus />
+                        <input value={search} onChange={e => setSearch(e.target.value)} className="w-full text-center text-xl font-mono uppercase bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 focus:border-pink-500 outline-none transition-all font-bold text-slate-700 placeholder:text-slate-300 shadow-inner" placeholder="BUSCAR CLIENTE (ID / NOMBRE)" autoFocus />
                         {suggestions.length > 0 && !found && (<div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-100 rounded-2xl shadow-xl z-40 overflow-hidden">{suggestions.map(s => (<div key={s.id} onClick={() => selectSuggestion(s)} className="p-4 border-b border-slate-50 hover:bg-slate-50 flex justify-between items-center cursor-pointer"><span className="font-bold text-slate-800 text-lg">{s.id}</span><span className="text-sm text-slate-500 font-medium">{s.name}</span></div>))}</div>)}
                     </div>
-                    {found && (<div className="mt-3 space-y-2"><div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-3 rounded-2xl text-center shadow-lg relative"><div className="font-black text-white text-xl tracking-tight">{found.name}</div><div className="text-white/80 text-xs font-bold tracking-widest">{found.id}</div><button onClick={() => { setFound(null); setSearch(""); setCart([]); }} className="absolute right-3 top-3 text-white/50 hover:text-white font-bold text-xs">CAMBIAR</button></div></div>)}
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-4 pt-2 flex flex-col">
-                    {msg && <div className="bg-emerald-600 text-white p-4 rounded-2xl mb-4 text-center font-bold animate-bounce shadow-xl mx-2 border-2 border-emerald-400">{msg}</div>}
-                    <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 mb-4 flex-1">
-                        <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Icon.Search /> Escanear o Buscar Prenda</h3>
-                        {!selectedItem ? (
-                            <div className="relative">
-                                <input value={itemSearch} onChange={e => setItemSearch(e.target.value)} placeholder="Ej: CAM o 'Camisa'" className="w-full p-4 bg-slate-50 border-2 border-slate-200 rounded-xl outline-none focus:border-indigo-500 font-bold text-slate-700 uppercase" />
-                                {inventoryResults.length > 0 && (
-                                    <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 rounded-xl shadow-2xl z-40 overflow-hidden">
-                                        {inventoryResults.map(item => (
-                                            <div key={item.fireId} onClick={() => handleSelectItem(item)} className="p-4 border-b border-slate-50 hover:bg-indigo-50 flex justify-between items-center cursor-pointer">
-                                                <div><span className="font-black text-indigo-700 block">{item.code}</span><span className="text-xs text-slate-500">{item.detail}</span></div><span className="font-bold text-emerald-600">${item.price.toFixed(2)}</span>
-                                            </div>
-                                        ))}
+                    
+                    {found && (
+                        <div className="mt-3 space-y-2">
+                            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-3 rounded-2xl text-center shadow-lg animate-in fade-in slide-in-from-top-4 transform transition-all relative">
+                                <div className="font-black text-white text-xl tracking-tight">{found.name}</div>
+                                <div className="text-white/80 text-xs font-bold tracking-widest">{found.id}</div>
+                                <button onClick={() => { setFound(null); setSearch(""); setCart([]); }} className="absolute right-3 top-3 text-white/50 hover:text-white font-bold text-xs">CAMBIAR</button>
+                            </div>
+                            {cart.length > 0 && (
+                                <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-3 animate-in slide-in-from-top-2">
+                                    <div className="text-[10px] font-bold text-indigo-400 uppercase mb-2 flex justify-between items-center">
+                                        <span className="flex items-center gap-2">Items por guardar: <span className="bg-indigo-200 text-indigo-700 px-2 py-0.5 rounded-md font-black">{totalCartItems} prendas</span></span>
+                                        <span className="text-indigo-700 font-black text-xs">Total: ${totalCartValue.toFixed(2)}</span>
                                     </div>
-                                )}
-                            </div>
-                        ) : (
-                            <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100 relative">
-                                <button onClick={() => setSelectedItem(null)} className="absolute top-3 right-3 text-indigo-400 font-black">✕</button>
-                                <div className="font-black text-2xl text-indigo-900 mb-1">{selectedItem.code}</div>
-                                <div className="text-sm font-bold text-slate-600 mb-4">{selectedItem.detail}</div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><label className="text-[10px] font-bold text-slate-400 uppercase">PVP Original</label><div className="font-black text-slate-400 line-through text-lg">${selectedItem.price.toFixed(2)}</div></div>
-                                    <div><label className="text-[10px] font-bold text-indigo-500 uppercase">Añadir Descuento (%)</label><input type="number" value={discountPct} onChange={e => setDiscountPct(e.target.value)} className="w-full p-2 bg-white border border-indigo-200 rounded-lg font-bold text-center text-indigo-700" placeholder="0%" /></div>
+                                    <div className="flex gap-2 overflow-x-auto pb-1">{cart.map((c, i) => (<div key={i} className="flex-shrink-0 bg-white border border-indigo-100 px-3 py-2 rounded-xl shadow-sm flex items-center gap-2"><div><div className="font-bold text-xs text-slate-700">{c.qty}x {c.item} {c.owner!=='me' && <span className="text-[8px] bg-purple-100 text-purple-700 px-1 rounded">{c.owner}</span>}</div><div className="text-[10px] text-emerald-600 font-bold">${c.price.toFixed(2)} c/u</div></div><button onClick={() => removeFromCart(c.id)} className="text-red-400 hover:text-red-600 font-bold px-1">×</button></div>))}</div>
                                 </div>
-                                <div className="mt-4 pt-4 border-t border-indigo-100 flex justify-between items-center">
-                                    <div className="font-black text-emerald-600 text-2xl">PVP Final: ${(selectedItem.price - (selectedItem.price * ((parseFloat(discountPct)||0)/100))).toFixed(2)}</div>
-                                    <button onClick={addToCart} className="bg-emerald-500 text-white px-6 py-3 rounded-xl font-black shadow-lg">+ AL CARRITO</button>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                    {cart.length > 0 && (
-                        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 shadow-sm">
-                            <div className="text-xs font-black text-emerald-700 uppercase mb-3 flex justify-between"><span>🛒 En Carrito ({cart.length}):</span><span>Total: ${cart.reduce((acc, i) => acc + i.price, 0).toFixed(2)}</span></div>
-                            <div className="flex flex-col gap-2 max-h-32 overflow-y-auto pr-2">
-                                {cart.map((c, i) => (
-                                    <div key={i} className="bg-white border border-emerald-100 p-2 rounded-xl flex justify-between items-center">
-                                        <div><div className="font-bold text-xs text-slate-700">{c.item}</div>{c.discountApplied > 0 && <div className="text-[9px] text-orange-500 font-bold">Desc: {c.discountApplied}%</div>}</div>
-                                        <div className="flex items-center gap-3"><div className="text-sm text-emerald-600 font-black">${c.price.toFixed(2)}</div><button onClick={() => removeFromCart(c.id)} className="text-red-500 font-bold">✕</button></div>
-                                    </div>
-                                ))}
-                            </div>
+                            )}
                         </div>
                     )}
                 </div>
 
-                <div className="p-4 bg-white border-t border-slate-200 z-20 pb-6 rounded-t-[30px] shadow-lg">
-                    <button onClick={handleFinalize} disabled={!found || cart.length === 0} className="w-full py-5 bg-slate-900 text-white rounded-2xl font-black text-xl shadow-2xl disabled:opacity-50 flex items-center justify-center gap-3">FACTURAR Y DESCONTAR STOCK</button>
+                <div className="flex-1 overflow-y-auto p-4 pt-2">
+                    {msg && <div className="bg-emerald-600 text-white p-4 rounded-2xl mb-6 text-center font-bold animate-bounce shadow-xl mx-2 border-2 border-emerald-400">{msg}</div>}
+                    <div className="grid grid-cols-1 landscape:grid-cols-3 gap-4 h-full">
+                        
+                        <div className="pos-card-3d delay-1 relative z-50">
+                            <label className="pos-label-giant"><Icon.Tag /> Prenda / Código</label>
+                            
+                            {/* 🧠 EL CAJÓN MÁGICO QUE BUSCA EN BODEGA */}
+                            <input 
+                                value={item} 
+                                onChange={e => { setItem(e.target.value); setSelectedInvItem(null); }} 
+                                className={`pos-input-modern mb-4 transition-colors ${selectedInvItem ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : ''}`} 
+                                placeholder="Escribe código o detalle..." 
+                            />
+                            
+                            {/* 🧠 PANEL DESPLEGABLE (Solo muestra lo DISPONIBLE) */}
+                            {invSuggestions.length > 0 && (
+                                <div className="absolute top-[85px] left-0 w-full bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden">
+                                    <div className="p-2 bg-indigo-50 text-[10px] font-black text-indigo-600 uppercase tracking-widest border-b border-indigo-100">Stock Disponible</div>
+                                    {invSuggestions.map(s => (
+                                        <div key={s.fireId} onClick={() => selectInvItem(s)} className="p-3 border-b border-slate-50 hover:bg-indigo-50 cursor-pointer flex justify-between items-center transition-colors">
+                                            <div>
+                                                <div className="font-bold text-indigo-700 text-xs">{s.code}</div>
+                                                <div className="text-xs font-medium text-slate-700">{s.detail} <span className="text-[9px] bg-slate-100 font-black text-slate-500 px-1.5 py-0.5 rounded ml-1">Talla: {s.size||'U'}</span></div>
+                                            </div>
+                                            <div className="font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg">${(s.price||0).toFixed(2)}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+
+                            <div className="pos-scroll-area">{ITEMS_COMMON.map(it => (<div key={it} className="btn-3d-wrapper"><button onClick={() => setItem(it)} className={`btn-3d w-full h-full ${item === it ? 'active-pink' : ''}`}>{it}</button></div>))}</div>
+                        </div>
+
+                        <div className="pos-card-3d delay-2 z-40"><label className="pos-label-giant"><Icon.Hash /> Cantidad</label><input type="number" inputMode="numeric" pattern="[0-9]*" value={qty} onChange={e => setQty(parseInt(e.target.value) || '')} className="pos-input-modern mb-4" placeholder="#" disabled={!!selectedInvItem} /><div className="pos-scroll-area">{QTY_OPTIONS.map(q => (<div key={q} className="btn-3d-wrapper"><button onClick={() => setQty(q)} disabled={!!selectedInvItem} className={`btn-3d w-full h-full ${qty === q ? 'active-indigo' : ''} disabled:opacity-30`}>{q}</button></div>))}</div></div>
+                        <div className="pos-card-3d delay-3 z-30"><label className="pos-label-giant"><Icon.Dollar /> Precio Unitario</label><input type="number" inputMode="decimal" step="0.01" value={price} onChange={e => setPrice(e.target.value)} className="pos-input-modern mb-4 text-emerald-600" placeholder="$0.00" /><div className="pos-scroll-area">{PRICE_OPTIONS.map(p => (<div key={p} className="btn-3d-wrapper"><button onClick={() => setPrice(p)} className={`btn-3d w-full h-full ${price === p ? 'active-emerald' : ''}`}>${p}</button></div>))}</div></div>
+                    </div>
+                </div>
+
+                <div className="p-4 bg-white border-t border-slate-200 z-20 pb-6 md:pb-4 rounded-t-[30px] shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+                    <div className="flex gap-3">
+                        <button onClick={addToCart} disabled={!found || !item || !price} className="flex-1 py-5 bg-amber-400 text-amber-900 rounded-2xl font-black text-sm md:text-lg shadow-xl disabled:opacity-50 touch-card active:scale-95 transition-all flex items-center justify-center gap-2"><Icon.List /> <span>SUMAR</span></button>
+                        <button onClick={handleFinalize} disabled={!found || (!item && cart.length === 0)} className="flex-[2] py-5 bg-slate-900 text-white rounded-2xl font-black text-sm md:text-xl shadow-2xl disabled:opacity-50 touch-card active:scale-95 transition-all flex items-center justify-center gap-3 tracking-wide"><span>{cart.length > 0 ? `GUARDAR TODO (${totalCartItems + (item ? parseInt(qty)||1 : 0)} prendas)` : 'CONFIRMAR VENTA'}</span><div className="bg-white/20 p-1.5 rounded-full"><Icon.Check /></div></button>
+                    </div>
                 </div>
             </div>
         );
