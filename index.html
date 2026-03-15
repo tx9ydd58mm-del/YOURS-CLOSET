@@ -333,7 +333,7 @@
     // --- LÓGICA DE NEGOCIO (V10 - PROTOCOLO FRANCOTIRADOR / ID ÚNICO) ---
 
 
-    const useBusinessLogic = (user) => {
+       const useBusinessLogic = (user) => {
         const [clients, setClients] = useState([]);
         const [allSalesRaw, setAllSalesRaw] = useState([]); 
         const [payments, setPayments] = useState([]);
@@ -406,56 +406,73 @@
         const updateClientLocal = (clientId, updates) => { const c = clients.find(cl => cl.id === clientId); if (c && c.fireId) window.fs.updateDoc(window.fs.doc(window.db, "clients", c.fireId), updates); };
         const deleteClient = async (clientId) => { const c = clients.find(cl => cl.id === clientId); if(c && c.fireId) await window.fs.deleteDoc(window.fs.doc(window.db, "clients", c.fireId)); };
         
-        // 🧠 PLAN B: SI NO TIENE EL ID, EXTRAE EL CÓDIGO [XXX-000] DEL TEXTO Y RESTAURA EL STOCK A 1
+        // 🧠 LECTOR BLINDADO: Rastrea el código usando REGEX sin importar dónde esté escrito
+        const extractInventoryCode = (text) => {
+            if (!text) return null;
+            // Busca el patrón exacto: 3-4 Letras + Guion + 1-2 Letras + Guion + 3 Números (Ej: CAM-H-054)
+            const match = text.match(/[A-Z]{3,4}-[A-Z]{1,2}-\d{3}/i);
+            return match ? match[0].toUpperCase() : null;
+        };
+
         const deleteSale = async (itemOrId) => { 
             try {
                 const db = window.db;
                 let targetFireId = typeof itemOrId === 'string' ? itemOrId : (itemOrId.fireId || null);
                 let invIdToRestore = typeof itemOrId === 'object' ? itemOrId.inventoryId : null;
 
+                if (!targetFireId && typeof itemOrId === 'object' && itemOrId.id) {
+                    const foundSale = allSalesRaw.find(s => s.id === itemOrId.id);
+                    if (foundSale) targetFireId = foundSale.fireId;
+                }
+
+                // PLAN B MÁGICO: Si no hay ID, extrae el código del texto y lo busca en la base de datos
                 if (!invIdToRestore && typeof itemOrId === 'object' && itemOrId.item) {
-                    const match = itemOrId.item.match(/^\[(.*?)\]/);
-                    if (match && match[1]) {
-                        const foundInv = inventory.find(i => i.code === match[1]);
+                    const extractedCode = extractInventoryCode(itemOrId.item);
+                    if (extractedCode) {
+                        const foundInv = inventory.find(i => i.code && i.code.toUpperCase() === extractedCode);
                         if (foundInv) invIdToRestore = foundInv.fireId;
                     }
                 }
 
-                if (!targetFireId && typeof itemOrId === 'object' && itemOrId.id) {
-                    const q = window.fs.query(window.fs.collection(db, "sales"), window.fs.where("id", "==", itemOrId.id));
-                    const snapshot = await window.fs.getDocs(q);
-                    if (!snapshot.empty) { targetFireId = snapshot.docs[0].id; }
-                }
-
                 if (targetFireId) {
                     await window.fs.updateDoc(window.fs.doc(db, "sales", targetFireId), { deletedAt: new Date().toISOString() });
-                    if (invIdToRestore) { try { await window.fs.updateDoc(window.fs.doc(db, "inventory", invIdToRestore), { stock: 1 }); } catch(e){} }
+                    // DEVOLVER STOCK = 1
+                    if (invIdToRestore) { 
+                        try { await window.fs.updateDoc(window.fs.doc(db, "inventory", invIdToRestore), { stock: 1 }); } catch(e){} 
+                    }
                     return true;
                 }
                 return false;
-            } catch (error) { return false; }
+            } catch (error) { console.error(error); return false; }
         };
 
-        // 🧠 PLAN B: SI RESTAURAS DE PAPELERA, EXTRAE EL CÓDIGO Y VUELVE A DESCONTAR (STOCK A 0)
         const restoreSale = async (itemOrId) => {
             try {
                 const db = window.db;
-                const targetFireId = typeof itemOrId === 'string' ? itemOrId : itemOrId.fireId;
+                let targetFireId = typeof itemOrId === 'string' ? itemOrId : (itemOrId.fireId || null);
                 let invIdToDeduct = typeof itemOrId === 'object' ? itemOrId.inventoryId : null;
 
+                if (!targetFireId && typeof itemOrId === 'object' && itemOrId.id) {
+                    const foundSale = allSalesRaw.find(s => s.id === itemOrId.id);
+                    if (foundSale) targetFireId = foundSale.fireId;
+                }
+
                 if (!invIdToDeduct && typeof itemOrId === 'object' && itemOrId.item) {
-                    const match = itemOrId.item.match(/^\[(.*?)\]/);
-                    if (match && match[1]) {
-                        const foundInv = inventory.find(i => i.code === match[1]);
+                    const extractedCode = extractInventoryCode(itemOrId.item);
+                    if (extractedCode) {
+                        const foundInv = inventory.find(i => i.code && i.code.toUpperCase() === extractedCode);
                         if (foundInv) invIdToDeduct = foundInv.fireId;
                     }
                 }
 
                 if(targetFireId) {
                     await window.fs.updateDoc(window.fs.doc(db, "sales", targetFireId), { deletedAt: null });
-                    if (invIdToDeduct) { try { await window.fs.updateDoc(window.fs.doc(db, "inventory", invIdToDeduct), { stock: 0 }); } catch(e){} }
+                    // DESCONTAR STOCK = 0
+                    if (invIdToDeduct) { 
+                        try { await window.fs.updateDoc(window.fs.doc(db, "inventory", invIdToDeduct), { stock: 0 }); } catch(e){} 
+                    }
                 }
-            } catch(e) {}
+            } catch(e) { console.error(e); }
         };
 
         const destroySale = async (itemOrId) => {
